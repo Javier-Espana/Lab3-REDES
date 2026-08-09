@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+import csv
+import heapq
+import json
+import os
+from typing import Dict, List, Tuple
+
+
+class LinkStateRouter:
+    def __init__(self, node_id: str, neighbors: Dict[str, int], host: str = "127.0.0.1", port: int = 5000):
+        self.node_id = node_id
+        self.neighbors = neighbors
+        self.host = host
+        self.port = port
+        self.lsa_seq = 0
+        self.topology: Dict[str, Dict[str, int]] = {node_id: dict(neighbors)}
+        self.latest_lsas: Dict[str, Tuple[int, Dict[str, int]]] = {}
+        self.routing_table: Dict[str, Tuple[str, int, str, int]] = {}
+
+    def build_lsa(self) -> dict:
+        self.lsa_seq += 1
+        return {
+            "type": "LSA",
+            "origin": self.node_id,
+            "seq": self.lsa_seq,
+            "links": [{"to": neighbor, "cost": cost} for neighbor, cost in self.neighbors.items()],
+            "from": self.node_id,
+        }
+
+    def process_lsa(self, lsa: dict) -> None:
+        origin = lsa["origin"]
+        seq = int(lsa["seq"])
+        previous = self.latest_lsas.get(origin)
+        if previous and seq <= previous[0]:
+            return
+        self.latest_lsas[origin] = (seq, {link["to"]: int(link["cost"]) for link in lsa.get("links", [])})
+        self._rebuild_topology()
+        self._write_routing_table()
+
+    def _rebuild_topology(self) -> None:
+        topology = {self.node_id: dict(self.neighbors)}
+        for origin, links in self.latest_lsas.items():
+            if origin == self.node_id:
+                topology[origin] = dict(self.neighbors)
+            else:
+                topology[origin] = dict(links[1])
+        self.topology = topology
+
+    def _write_routing_table(self) -> None:
+        paths = compute_shortest_paths(self.topology, self.node_id)
+        self.routing_table = {}
+        for dest, (next_hop, cost) in paths.items():
+            if dest == self.node_id:
+                continue
+            self.routing_table[dest] = (next_hop, cost, self.host, self.port + 1000 + len(dest))
+
+        output_path = os.path.join(os.getcwd(), f"{self.node_id}_tabla_enrutamiento.csv")
+        with open(output_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["destino", "siguiente_salto", "costo", "ip", "puerto"])
+            for dest, (next_hop, cost, ip, port) in self.routing_table.items():
+                writer.writerow([dest, next_hop, cost, ip, port])
+
+    def forward_data_packet(self, packet: dict) -> dict:
+        if packet.get("nodo_destino") in self.routing_table:
+            next_hop, _, ip, port = self.routing_table[packet["nodo_destino"]]
+            return {"next_hop": next_hop, "ip": ip, "port": port, "packet": packet}
+        return {"next_hop": None, "ip": None, "port": None, "packet": packet}
+
+
+def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dict[str, Tuple[str, int]]:
+    distances = {node: float("inf") for node in graph}
+    distances[source] = 0
+    previous = {}
+    priority_queue = [(0, source)]
+
+    while priority_queue:
+        current_cost, node = heapq.heappop(priority_queue)
+        if current_cost > distances[node]:
+            continue
+        for neighbor, weight in graph.get(node, {}).items():
+            candidate_cost = current_cost + weight
+            if candidate_cost < distances[neighbor]:
+                distances[neighbor] = candidate_cost
+                previous[neighbor] = node
+                heapq.heappush(priority_queue, (candidate_cost, neighbor))
+
+    paths = {}
+    for node in distances:
+        if node == source:
+            continue
+        if distances[node] == float("inf"):
+            continue
+        next_hop = node
+        current = node
+        while previous.get(current) != None and previous[current] != source:
+            current = previous[current]
+        if previous.get(current) == source:
+            next_hop = current
+        paths[node] = (next_hop, int(distances[node]))
+    return paths
