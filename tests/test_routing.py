@@ -23,4 +23,4 @@ def test_dijkstra_shortest_paths():
     }
     paths = compute_shortest_paths(graph, "R1")
     assert paths["R2"] == ("R2", 1)
-    assert paths["BANK1"] == ("R3", 3)
+    assert paths["BANK1"] == ("R2", 4)

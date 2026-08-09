@@ -39,12 +39,16 @@ class LinkStateRouter:
         self._write_routing_table()
 
     def _rebuild_topology(self) -> None:
-        topology = {self.node_id: dict(self.neighbors)}
+        topology: Dict[str, Dict[str, int]] = {self.node_id: dict(self.neighbors)}
         for origin, links in self.latest_lsas.items():
-            if origin == self.node_id:
-                topology[origin] = dict(self.neighbors)
-            else:
-                topology[origin] = dict(links[1])
+            adjacency = dict(links[1])
+            topology[origin] = adjacency
+            for neighbor in adjacency:
+                topology.setdefault(neighbor, {})
+            topology.setdefault(origin, {})
+        for node in list(topology):
+            for neighbor in list(topology[node]):
+                topology.setdefault(neighbor, {})
         self.topology = topology
 
     def _write_routing_table(self) -> None:
@@ -70,9 +74,13 @@ class LinkStateRouter:
 
 
 def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dict[str, Tuple[str, int]]:
-    distances = {node: float("inf") for node in graph}
+    nodes = set(graph.keys())
+    for neighbors in graph.values():
+        nodes.update(neighbors.keys())
+
+    distances = {node: float("inf") for node in nodes}
     distances[source] = 0
-    previous = {}
+    previous: Dict[str, str] = {}
     priority_queue = [(0, source)]
 
     while priority_queue:
@@ -87,14 +95,12 @@ def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dic
                 heapq.heappush(priority_queue, (candidate_cost, neighbor))
 
     paths = {}
-    for node in distances:
-        if node == source:
-            continue
-        if distances[node] == float("inf"):
+    for node in nodes:
+        if node == source or distances[node] == float("inf"):
             continue
         next_hop = node
         current = node
-        while previous.get(current) != None and previous[current] != source:
+        while previous.get(current) is not None and previous[current] != source:
             current = previous[current]
         if previous.get(current) == source:
             next_hop = current

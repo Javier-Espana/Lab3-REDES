@@ -1,7 +1,7 @@
 def encode_bits(data: str) -> str:
     """Codifica una cadena de bits usando Hamming (7,4)."""
     if len(data) % 4 != 0:
-        raise ValueError("La longitud de los datos debe ser múltiplo de 4")
+        data = data + "0" * (4 - (len(data) % 4))
 
     encoded = []
     for i in range(0, len(data), 4):
