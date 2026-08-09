@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import heapq
-import json
 import os
 from typing import Dict, List, Tuple
 
@@ -17,6 +16,8 @@ class LinkStateRouter:
         self.topology: Dict[str, Dict[str, int]] = {node_id: dict(neighbors)}
         self.latest_lsas: Dict[str, Tuple[int, Dict[str, int]]] = {}
         self.routing_table: Dict[str, Tuple[str, int, str, int]] = {}
+        self.seen_sequences: Dict[str, int] = {}
+        self.hello_counter = 0
 
     def build_lsa(self) -> dict:
         self.lsa_seq += 1
@@ -28,15 +29,38 @@ class LinkStateRouter:
             "from": self.node_id,
         }
 
-    def process_lsa(self, lsa: dict) -> None:
+    def build_hello(self) -> dict:
+        self.hello_counter += 1
+        return {"type": "HELLO", "from": self.node_id, "seq": self.hello_counter}
+
+    def process_hello(self, hello: dict) -> None:
+        if hello.get("type") != "HELLO":
+            return
+        self.topology.setdefault(hello["from"], {})
+
+    def process_lsa(self, lsa: dict, sender: str | None = None) -> bool:
+        if lsa.get("type") != "LSA":
+            return False
         origin = lsa["origin"]
         seq = int(lsa["seq"])
-        previous = self.latest_lsas.get(origin)
-        if previous and seq <= previous[0]:
-            return
+        previous_seq = self.seen_sequences.get(origin)
+        if previous_seq is not None and seq <= previous_seq:
+            return False
+        self.seen_sequences[origin] = seq
         self.latest_lsas[origin] = (seq, {link["to"]: int(link["cost"]) for link in lsa.get("links", [])})
         self._rebuild_topology()
         self._write_routing_table()
+        return True
+
+    def flood_lsa(self, lsa: dict, sender: str | None = None) -> List[Tuple[str, dict]]:
+        if self.process_lsa(lsa, sender):
+            forwarded = []
+            for neighbor in self.neighbors:
+                if sender and neighbor == sender:
+                    continue
+                forwarded.append((neighbor, lsa))
+            return forwarded
+        return []
 
     def _rebuild_topology(self) -> None:
         topology: Dict[str, Dict[str, int]] = {self.node_id: dict(self.neighbors)}
@@ -59,7 +83,9 @@ class LinkStateRouter:
                 continue
             self.routing_table[dest] = (next_hop, cost, self.host, self.port + 1000 + len(dest))
 
-        output_path = os.path.join(os.getcwd(), f"{self.node_id}_tabla_enrutamiento.csv")
+        output_dir = os.path.join(os.getcwd(), "output")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv")
         with open(output_path, "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
             writer.writerow(["destino", "siguiente_salto", "costo", "ip", "puerto"])

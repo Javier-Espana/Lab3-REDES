@@ -1,3 +1,4 @@
 destino,siguiente_salto,costo,ip,puerto
-R1,R1,1,127.0.0.1,6002
 R3,R3,2,127.0.0.1,6002
+BANK1,R3,3,127.0.0.1,6005
+R1,R1,1,127.0.0.1,6002

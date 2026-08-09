@@ -13,18 +13,23 @@ from common.hamming import encode_bits, decode_bits
 
 def main() -> None:
     print("Simulación del laboratorio 3")
-    router_a = LinkStateRouter("R1", {"R2": 1, "R3": 4})
-    router_b = LinkStateRouter("R2", {"R1": 1, "R3": 2})
-    router_c = LinkStateRouter("R3", {"R1": 4, "R2": 2, "BANK1": 1})
-    router_bank = LinkStateRouter("BANK1", {"R3": 1})
+    routers = {
+        "R1": LinkStateRouter("R1", {"R2": 1, "R3": 4}),
+        "R2": LinkStateRouter("R2", {"R1": 1, "R3": 2}),
+        "R3": LinkStateRouter("R3", {"R1": 4, "R2": 2, "BANK1": 1}),
+        "BANK1": LinkStateRouter("BANK1", {"R3": 1}),
+    }
 
-    lsa_a = router_a.build_lsa()
-    lsa_b = router_b.build_lsa()
-    lsa_c = router_c.build_lsa()
-    lsa_bank = router_bank.build_lsa()
+    for router_id, router in routers.items():
+        hello = router.build_hello()
+        router.process_hello(hello)
+        lsa = router.build_lsa()
+        for neighbor_id, _ in router.neighbors.items():
+            routers[neighbor_id].process_lsa(lsa, sender=router_id)
 
-    for router, lsa in [(router_a, lsa_a), (router_b, lsa_b), (router_c, lsa_c), (router_bank, lsa_bank)]:
-        router.process_lsa(lsa)
+    for router_id, router in routers.items():
+        for neighbor_id in list(router.neighbors):
+            routers[neighbor_id].process_hello(router.build_hello())
 
     packet = {
         "nodo_origen": "ATM1",
@@ -39,7 +44,7 @@ def main() -> None:
     print("Bits decodificados:", decoded_bits[:80])
 
     print("Tabla de enrutamiento generada para R1:")
-    with open(os.path.join(os.getcwd(), "R1_tabla_enrutamiento.csv"), "r", encoding="utf-8") as handle:
+    with open(os.path.join(os.getcwd(), "output", "R1_nodo_tabla_enrutamiento.csv"), "r", encoding="utf-8") as handle:
         print(handle.read())
 
 
