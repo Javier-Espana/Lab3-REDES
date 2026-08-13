@@ -165,7 +165,7 @@ def run_demo(config_path: str) -> None:
 
     print("\n3. Muestra de Tablas de Enrutamiento CSV generadas:")
     output_dir = os.path.join(os.getcwd(), "output")
-    for r_id in ["R1", "R6"]:
+    for r_id in ["R1", "R4", "R6"]:
         csv_file = os.path.join(output_dir, f"{r_id}_nodo_tabla_enrutamiento.csv")
         print(f"\n--- Tabla de enrutamiento [{r_id}] ({csv_file}) ---")
         if os.path.exists(csv_file):

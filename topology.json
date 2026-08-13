@@ -1,80 +1,53 @@
 {
-  "nodes": {
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "cost": 1
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "cost": 2
+    },
+    {
+      "a": "R3",
+      "b": "R4",
+      "cost": 1
+    },
+    {
+      "a": "R4",
+      "b": "R5",
+      "cost": 3
+    },
+    {
+      "a": "R5",
+      "b": "R6",
+      "cost": 1
+    },
+    {
+      "a": "R6",
+      "b": "R1",
+      "cost": 4
+    },
+    {
+      "a": "R2",
+      "b": "R5",
+      "cost": 5
+    }
+  ],
+  "end_hosts": {
     "ATM1": {
-      "type": "atm",
-      "ip": "127.0.0.1",
-      "port": 5020,
+      "owner": "P1",
+      "port": 6101,
       "gateway": "R1",
-      "neighbors": {
-        "R1": 1
-      }
-    },
-    "R1": {
-      "type": "router",
-      "ip": "127.0.0.1",
-      "port": 5001,
-      "neighbors": {
-        "ATM1": 1,
-        "R2": 1,
-        "R3": 4
-      }
-    },
-    "R2": {
-      "type": "router",
-      "ip": "127.0.0.1",
-      "port": 5002,
-      "neighbors": {
-        "R1": 1,
-        "R3": 2,
-        "R4": 1
-      }
-    },
-    "R3": {
-      "type": "router",
-      "ip": "127.0.0.1",
-      "port": 5003,
-      "neighbors": {
-        "R1": 4,
-        "R2": 2,
-        "R5": 1
-      }
-    },
-    "R4": {
-      "type": "router",
-      "ip": "127.0.0.1",
-      "port": 5004,
-      "neighbors": {
-        "R2": 1,
-        "R6": 1
-      }
-    },
-    "R5": {
-      "type": "router",
-      "ip": "127.0.0.1",
-      "port": 5005,
-      "neighbors": {
-        "R3": 1,
-        "R6": 1
-      }
-    },
-    "R6": {
-      "type": "router",
-      "ip": "127.0.0.1",
-      "port": 5006,
-      "neighbors": {
-        "R4": 1,
-        "R5": 1,
-        "BANK1": 1
-      }
+      "cost": 1
     },
     "BANK1": {
-      "type": "bank",
-      "ip": "127.0.0.1",
-      "port": 5010,
-      "gateway": "R6",
-      "neighbors": {
-        "R6": 1
-      }
+      "owner": "P2",
+      "port": 6102,
+      "gateway": "R4",
+      "cost": 1
     }
   }
 }
