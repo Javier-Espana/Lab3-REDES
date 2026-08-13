@@ -7,29 +7,191 @@ CC3084 - Redes - Semestre II 2026
 - Javier España #23361
 - Roberto Barreda #23354
 
+---
+
 ## Objetivo del proyecto
-Este repositorio implementa la primera mitad del laboratorio de enrutamiento siguiendo el protocolo definido en los documentos de la carpeta docs. La solución incluye:
-- un modelo de router con LSA y cálculo de rutas con Dijkstra,
-- generación de una tabla de enrutamiento en CSV,
-- soporte básico de detección y corrección de errores con Hamming (7,4),
-- una demo ejecutable para validar el flujo inicial del protocolo.
+Este repositorio implementa un sistema de enrutamiento distribuido con el protocolo Link-State (LSA) y cálculo de rutas con Dijkstra. Incluye:
+- Router con intercambio de paquetes HELLO y LSA.
+- Cálculo y exportación de tablas de enrutamiento en CSV.
+- Detección y corrección de errores con Hamming (7,4).
+- Simulación de transacción bancaria ATM → Router(es) → Banco end-to-end.
+- Soporte para ejecutar cada nodo en **máquinas distintas** conectadas vía **Tailscale**.
+
+---
 
 ## Estructura del proyecto
-- src/common/: utilidades compartidas, como la codificación Hamming.
-- src/routers/: lógica del router y cálculo de rutas.
-- src/main.py: demo de ejecución local del laboratorio.
-- tests/: pruebas básicas para validar Dijkstra y Hamming.
-- ROBERTO.md: guía para la segunda mitad del laboratorio.
+
+```
+Lab3-REDES/
+├── network_settings.py      ← ARCHIVO DE CONFIGURACIÓN DE RED (editar aquí)
+├── topology.json            ← Topología de nodos (puertos y vecinos)
+├── src/
+│   ├── main.py              ← Punto de entrada principal
+│   ├── common/
+│   │   ├── config.py        ← Carga de topología
+│   │   ├── framing.py       ← Serialización de paquetes
+│   │   └── hamming.py       ← Codificación/decodificación Hamming (7,4)
+│   ├── routers/
+│   │   └── router.py        ← Lógica del router Link-State
+│   └── apps/
+│       ├── atm_client.py    ← Cliente ATM
+│       └── bank_server.py   ← Servidor Bancario
+├── tests/
+│   └── test_routing.py      ← Pruebas de Dijkstra y Hamming
+└── output/                  ← Tablas de enrutamiento CSV generadas
+```
+
+---
 
 ## Requisitos
-- Python 3.10 o superior.
 
-## Ejecución
-1. Desde la raíz del proyecto, ejecutar:
-   python3 src/main.py
-2. Para validar las pruebas básicas:
-   pytest -q
+- Python **3.10** o superior.
+- (Para red distribuida) **Tailscale** instalado en cada máquina.
 
-## Notas importantes
-- El protocolo utilizado sigue el esquema JSON descrito en los documentos, incluyendo los paquetes LSA y los mensajes de datos con el formato {nodo_origen, nodo_destino, mensaje}.
-- La implementación actual cubre la parte de construcción de tablas de enrutamiento, serialización de bits y demostración del flujo inicial. La segunda mitad queda documentada en ROBERTO.md para continuar con sockets, HELLO y pruebas reales entre routers.
+---
+
+## Ejecución local (una sola máquina)
+
+Asegúrate de que `network_settings.py` tenga:
+
+```python
+USE_TAILSCALE = False
+```
+
+### Demostración automática completa
+
+```bash
+python src/main.py --demo
+```
+
+### Ejecutar un nodo individual
+
+```bash
+# Iniciar un router
+python src/main.py --node R1
+
+# Iniciar el banco
+python src/main.py --node BANK1
+
+# Iniciar el cajero ATM
+python src/main.py --node ATM1
+```
+
+### Pruebas
+
+```bash
+pytest -q
+```
+
+---
+
+## Ejecución distribuida con Tailscale
+
+Esta es la guía para que cada integrante del equipo corra uno o más nodos en su propia máquina y se comuniquen entre sí a través de Tailscale.
+
+### Paso 1 — Instalar Tailscale en cada máquina
+
+1. Ir a [https://tailscale.com/download](https://tailscale.com/download) y descargar el instalador para tu sistema operativo.
+2. Iniciar sesión con una cuenta de Google, GitHub, o Microsoft. **Todos los integrantes deben usar la misma cuenta** (o estar en la misma red Tailscale / "tailnet").
+3. Una vez conectado, Tailscale asignará una IP privada de la forma `100.x.x.x` a cada máquina.
+
+### Paso 2 — Encontrar tu IP de Tailscale
+
+Puedes ver tu IP de Tailscale de tres formas:
+
+- **En la aplicación Tailscale**: clic en el ícono de la bandeja del sistema → aparece tu IP.
+- **En el panel web**: [https://login.tailscale.com/admin/machines](https://login.tailscale.com/admin/machines)
+- **Por terminal**:
+  ```bash
+  # Windows (PowerShell)
+  tailscale ip -4
+
+  # Linux / macOS
+  tailscale ip -4
+  ```
+
+### Paso 3 — Editar `network_settings.py`
+
+Abre el archivo `network_settings.py` en la **raíz del proyecto** y haz dos cosas:
+
+**1. Activa el modo Tailscale** (línea 8):
+```python
+USE_TAILSCALE = True   # ← cambiar de False a True
+```
+
+**2. Rellena las IPs Tailscale de cada nodo** según quién corra qué:
+```python
+TAILSCALE_IPS = {
+    "ATM1":  "100.x.x.1",   # ← IP de la máquina de Javier
+    "R1":    "100.x.x.1",   # ← misma máquina si Javier corre ATM1 y R1
+    "R2":    "100.x.x.2",   # ← IP de la máquina de Roberto
+    "R3":    "100.x.x.3",   # ← etc.
+    "R4":    "100.x.x.4",
+    "R5":    "100.x.x.5",
+    "R6":    "100.x.x.6",
+    "BANK1": "100.x.x.6",   # ← misma máquina si Roberto corre R6 y BANK1
+}
+```
+
+> **Importante:** Si una persona corre varios nodos en la misma máquina, todos esos nodos comparten la misma IP Tailscale. Los puertos (definidos en `topology.json`) los distinguen.
+
+### Paso 4 — Coordinar quién corre qué nodo
+
+Decidid entre los integrantes cómo repartir los nodos. Ejemplo de reparto:
+
+| Persona  | Nodos a ejecutar         |
+|----------|--------------------------|
+| Javier   | `ATM1`, `R1`, `R2`       |
+| Roberto  | `R3`, `R4`, `R5`, `R6`, `BANK1` |
+
+### Paso 5 — Ejecutar cada nodo en su máquina
+
+Cada persona abre una terminal **por nodo** y ejecuta:
+
+```bash
+# Javier — terminal 1
+python src/main.py --node ATM1
+
+# Javier — terminal 2
+python src/main.py --node R1
+
+# Javier — terminal 3
+python src/main.py --node R2
+
+# Roberto — terminal 1
+python src/main.py --node R3
+
+# ... y así sucesivamente
+```
+
+> **Nota:** Los routers deben levantarse **antes** que el ATM y el Banco para que el intercambio HELLO/LSA estabilice las tablas de enrutamiento.
+
+### Paso 6 — Verificar la conexión
+
+Cuando los nodos arranquen, verás en consola:
+
+```
+[RED] Modo de conexión: Tailscale
+Iniciando Router [R1] en 100.x.x.1:5001...
+```
+
+Si ves `Local` en lugar de `Tailscale`, revisa que `USE_TAILSCALE = True` en `network_settings.py`.
+
+### Solución de problemas comunes
+
+| Problema | Solución |
+|----------|----------|
+| `Connection refused` al conectar | Verificar que el nodo destino ya está corriendo y que la IP en `TAILSCALE_IPS` es correcta. |
+| Los nodos no se ven entre sí | Asegurarse de que ambas máquinas aparecen en [login.tailscale.com/admin/machines](https://login.tailscale.com/admin/machines) con estado "Connected". |
+| `Address already in use` | Otro proceso ocupa el puerto. Cambiar el puerto en `topology.json` o cerrar el proceso anterior. |
+| Firewall bloqueando | Tailscale normalmente pasa firewalls automáticamente. Si no, añadir excepción para los puertos 5001–5020 en el firewall de Windows/Linux. |
+
+---
+
+## Notas sobre el protocolo
+
+- Todos los paquetes siguen el formato JSON: `{nodo_origen, nodo_destino, mensaje}`.
+- Los routers intercambian paquetes `HELLO` para descubrir vecinos y `LSA` para propagar el estado del enlace.
+- Las rutas se calculan con el algoritmo de Dijkstra sobre el grafo de la red.
+- Cada paquete de datos se codifica con **Hamming (7,4)** para detección y corrección de errores de 1 bit.
+- Las tablas de enrutamiento se exportan automáticamente a `output/<nodo>_nodo_tabla_enrutamiento.csv`.

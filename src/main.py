@@ -9,15 +9,35 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Añadir raíz del proyecto al path para importar network_settings
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from apps.atm_client import ATMClient
 from apps.bank_server import BankServer
 from common.config import TopologyConfig
 from common.hamming import decode_bits, encode_bits
 from routers.router import LinkStateRouter
 
+try:
+    import network_settings as _net
+    _NODE_IPS = _net.NODE_IPS
+    _MODE_LABEL = _net.MODE_LABEL
+except ImportError:
+    _NODE_IPS = {}
+    _MODE_LABEL = "Local (network_settings.py no encontrado)"
+
+
+def _apply_network_settings(config: TopologyConfig) -> None:
+    """Sobreescribe las IPs de la topología con las definidas en network_settings.py."""
+    for node_id, info in config.nodes.items():
+        if node_id in _NODE_IPS:
+            info["ip"] = _NODE_IPS[node_id]
+
 
 def run_single_node(node_id: str, config_path: str) -> None:
+    print(f"[RED] Modo de conexión: {_MODE_LABEL}")
     config = TopologyConfig.load_from_file(config_path)
+    _apply_network_settings(config)
     node_info = config.get_node(node_id)
     if not node_info:
         print(f"Error: El nodo {node_id} no se encuentra en {config_path}")
@@ -101,8 +121,10 @@ def run_single_node(node_id: str, config_path: str) -> None:
 def run_demo(config_path: str) -> None:
     print("==================================================")
     print("  SIMULACIÓN COMPLETA - LABORATORIO 3 (ENRUTAMIENTO)")
+    print(f"  Modo de conexión: {_MODE_LABEL}")
     print("==================================================")
     config = TopologyConfig.load_from_file(config_path)
+    _apply_network_settings(config)
     node_addresses = {nid: (info["ip"], int(info["port"])) for nid, info in config.nodes.items()}
 
     routers: dict[str, LinkStateRouter] = {}
