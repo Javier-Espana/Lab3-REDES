@@ -113,33 +113,33 @@ O usa el flag `--local`:
 ### Demostracion automatica completa
 
 ```bash
-python3 src/main.py --demo
+python src/main.py --demo
 # Equivalente con flag local:
-python3 src/main.py --demo --local
+python src/main.py --demo --local
 ```
 
 ### Ejecutar todos los nodos de tu grupo
 
 ```bash
 # Si eres P1 (ejecuta ATM1, R1, R2, R3 juntos):
-python3 src/main.py --participant P1 --local
+python src/main.py --participant P1 --local
 
 # O usando el alias -p:
-python3 src/main.py -p P1 --local
+python src/main.py -p P1 --local
 ```
 
 ### Ejecutar un nodo individual
 
 ```bash
-python3 src/main.py --node R1 --local
-python3 src/main.py --node BANK1 --local
-python3 src/main.py --node ATM1 --local
+python src/main.py --node R1 --local
+python src/main.py --node BANK1 --local
+python src/main.py --node ATM1 --local
 ```
 
 ### Pruebas unitarias
 
 ```bash
-python3 -m unittest discover tests
+python -m unittest discover tests
 ```
 
 ---
@@ -204,10 +204,10 @@ Cada persona corre un solo comando:
 
 ```bash
 # Persona 1:
-python3 src/main.py -p P1
+python src/main.py -p P1
 
 # Persona 2:
-python3 src/main.py -p P2
+python src/main.py -p P2
 ```
 
 Este comando levanta automaticamente todos los nodos asignados a ese propietario en `topology.json`. Si tu grupo incluye el cajero ATM1, se abre el menu interactivo.

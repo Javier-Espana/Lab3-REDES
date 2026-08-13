@@ -1,7 +1,7 @@
 {
   "_comment": "Fuente única de verdad de la red. Cada persona coloca su IP una sola vez en 'machines'. Los nodos y end_hosts hacen referencia a su propietario (owner) y puerto.",
   "machines": {
-    "Espana": "100.93.223.104",
+    "Espana": "100.119.213.97",
     "Tono": "100.64.209.42",
     "Angel": "100.71.208.101",
     "Roberto": "0.0.0.0",
