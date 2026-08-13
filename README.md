@@ -112,53 +112,94 @@ Puedes ver tu IP de Tailscale de tres formas:
 
 ### Paso 3 — Editar `network_settings.py`
 
-Abre el archivo `network_settings.py` en la **raíz del proyecto** y haz dos cosas:
+Abre `network_settings.py` en la **raíz del proyecto**. El archivo tiene **dos secciones** que editar:
 
-**1. Activa el modo Tailscale** (línea 8):
+**1. Activa el modo Tailscale:**
 ```python
 USE_TAILSCALE = True   # ← cambiar de False a True
 ```
 
-**2. Rellena las IPs Tailscale de cada nodo** según quién corra qué:
+**2. Agrega a cada participante numerado (P1, P2, ...) con su IP de Tailscale:**
+
+Descomenta las líneas de los participantes que se vayan a conectar y asigna la IP real de cada uno:
+
 ```python
-TAILSCALE_IPS = {
-    "ATM1":  "100.x.x.1",   # ← IP de la máquina de Javier
-    "R1":    "100.x.x.1",   # ← misma máquina si Javier corre ATM1 y R1
-    "R2":    "100.x.x.2",   # ← IP de la máquina de Roberto
-    "R3":    "100.x.x.3",   # ← etc.
-    "R4":    "100.x.x.4",
-    "R5":    "100.x.x.5",
-    "R6":    "100.x.x.6",
-    "BANK1": "100.x.x.6",   # ← misma máquina si Roberto corre R6 y BANK1
+PARTICIPANTES = {
+    "P1": "100.64.0.1",   # ← IP de Tailscale del participante 1
+    "P2": "100.64.0.2",   # ← IP de Tailscale del participante 2
+    # "P3": "100.64.0.3", # ← descomentar si se une un 3er participante
+    # "P4": "100.64.0.4",
+    # "P5": "100.64.0.5",
+    # "P6": "100.64.0.6",
 }
 ```
 
-> **Importante:** Si una persona corre varios nodos en la misma máquina, todos esos nodos comparten la misma IP Tailscale. Los puertos (definidos en `topology.json`) los distinguen.
+> **Cómo saber tu IP:** abre una terminal y ejecuta `tailscale ip -4`, o mírala en la app de Tailscale en la bandeja del sistema.
+
+**3. Asigna qué nodos corre cada participante:**
+
+```python
+NODO_A_PARTICIPANTE = {
+    "ATM1":  "P1",
+    "R1":    "P1",
+    "R2":    "P1",
+    "R3":    "P2",
+    "R4":    "P2",
+    "R5":    "P2",
+    "R6":    "P2",
+    "BANK1": "P2",
+}
+```
+
+Las IPs se construyen automáticamente a partir de estas dos secciones. Si una clave en `NODO_A_PARTICIPANTE` no existe en `PARTICIPANTES`, el programa lanza un error claro al arrancar.
 
 ### Paso 4 — Coordinar quién corre qué nodo
 
-Decidid entre los integrantes cómo repartir los nodos. Ejemplo de reparto:
+Distribuye los nodos entre los participantes según cuántos haya. Ejemplos:
 
-| Persona  | Nodos a ejecutar         |
-|----------|--------------------------|
-| Javier   | `ATM1`, `R1`, `R2`       |
-| Roberto  | `R3`, `R4`, `R5`, `R6`, `BANK1` |
+**Con 2 participantes (P1, P2):**
+
+| Participante | Nodos                              |
+|--------------|------------------------------------|
+| P1           | `ATM1`, `R1`, `R2`                 |
+| P2           | `R3`, `R4`, `R5`, `R6`, `BANK1`   |
+
+**Con 3 participantes (P1, P2, P3):**
+
+| Participante | Nodos                 |
+|--------------|-----------------------|
+| P1           | `ATM1`, `R1`          |
+| P2           | `R2`, `R3`, `R4`      |
+| P3           | `R5`, `R6`, `BANK1`   |
+
+**Con 6 participantes (P1 a P6):**
+
+| Participante | Nodos        |
+|--------------|--------------|
+| P1           | `ATM1`, `R1` |
+| P2           | `R2`         |
+| P3           | `R3`         |
+| P4           | `R4`         |
+| P5           | `R5`, `R6`   |
+| P6           | `BANK1`      |
+
+> **Nota:** No importa cuántos nodos corra cada participante. Lo importante es que la clave en `NODO_A_PARTICIPANTE` (ej. `"P1"`) coincida exactamente con la clave en `PARTICIPANTES`.
 
 ### Paso 5 — Ejecutar cada nodo en su máquina
 
 Cada persona abre una terminal **por nodo** y ejecuta:
 
 ```bash
-# Javier — terminal 1
+# terminal 1
 python src/main.py --node ATM1
 
-# Javier — terminal 2
+# terminal 2
 python src/main.py --node R1
 
-# Javier — terminal 3
+# terminal 3
 python src/main.py --node R2
 
-# Roberto — terminal 1
+# terminal 1
 python src/main.py --node R3
 
 # ... y así sucesivamente
