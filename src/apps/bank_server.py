@@ -85,7 +85,9 @@ class BankServer:
         action = mensaje.get("action")
         data = mensaje.get("data", {})
 
+        print(f"[{self.node_id}] Peticion de {origin}: {action}")
         response_msg = self._process_action(origin, action, data)
+        print(f"[{self.node_id}] Respuesta enviada a {origin}: {response_msg.get('action')}")
         return {
             "nodo_origen": self.node_id,
             "nodo_destino": origin,
@@ -136,6 +138,11 @@ class BankServer:
                 s.settimeout(3.0)
                 s.connect(self.gateway_addr)
                 send_packet(s, packet)
+                try:
+                    s.shutdown(socket.SHUT_WR)
+                except Exception:
+                    pass
+                time.sleep(0.01)
                 return True
         except Exception as e:
             print(f"[{self.node_id}] Error al enviar respuesta a gateway {self.gateway_addr}: {e}")

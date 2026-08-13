@@ -21,15 +21,13 @@ class LinkStateRouter:
         node_addresses: Optional[Dict[str, Tuple[str, int]]] = None,
         hello_interval: float = 2.0,
         lsa_interval: float = 10.0,
-        dead_interval: float = 6.0,
+        dead_interval: float = 15.0,
     ):
         self.node_id = node_id
-        # neighbors mapping: neighbor_id -> cost
         self.neighbors: Dict[str, int] = dict(neighbors)
         self.initial_neighbors: Dict[str, int] = dict(neighbors)
         self.host = host
         self.port = port
-        # node_addresses mapping: node_id -> (host, port)
         self.node_addresses: Dict[str, Tuple[str, int]] = node_addresses or {}
         self.node_addresses[node_id] = (host, port)
 
@@ -41,11 +39,8 @@ class LinkStateRouter:
         self.hello_counter = 0
         self.seen_sequences: Dict[str, int] = {}
         self.latest_lsas: Dict[str, Tuple[int, List[Dict[str, Any]]]] = {}
-        
-        # Local topology graph: node_id -> {neighbor_id: cost}
+
         self.topology: Dict[str, Dict[str, int]] = {self.node_id: dict(self.neighbors)}
-        
-        # Routing table: dest -> (next_hop, cost, ip, port)
         self.routing_table: Dict[str, Tuple[str, int, str, int]] = {}
         self.neighbor_last_seen: Dict[str, float] = {}
 
@@ -54,7 +49,6 @@ class LinkStateRouter:
         self.threads: List[threading.Thread] = []
         self.lock = threading.Lock()
 
-        # Generate initial self LSA state
         self._update_self_lsa_state()
 
     def _update_self_lsa_state(self) -> None:
@@ -69,20 +63,24 @@ class LinkStateRouter:
             self.hello_counter += 1
             return {"type": "HELLO", "from": self.node_id, "cost": 1, "seq": self.hello_counter}
 
+    def _build_lsa_nolock(self) -> dict:
+        """Construye un LSA. Llamar solo cuando ya se tiene self.lock."""
+        self.lsa_seq += 1
+        links = [{"to": neighbor, "cost": cost} for neighbor, cost in self.neighbors.items()]
+        lsa = {
+            "type": "LSA",
+            "origin": self.node_id,
+            "seq": self.lsa_seq,
+            "links": links,
+            "from": self.node_id,
+        }
+        self.seen_sequences[self.node_id] = self.lsa_seq
+        self.latest_lsas[self.node_id] = (self.lsa_seq, links)
+        return lsa
+
     def build_lsa(self) -> dict:
         with self.lock:
-            self.lsa_seq += 1
-            links = [{"to": neighbor, "cost": cost} for neighbor, cost in self.neighbors.items()]
-            lsa = {
-                "type": "LSA",
-                "origin": self.node_id,
-                "seq": self.lsa_seq,
-                "links": links,
-                "from": self.node_id,
-            }
-            self.seen_sequences[self.node_id] = self.lsa_seq
-            self.latest_lsas[self.node_id] = (self.lsa_seq, links)
-            return lsa
+            return self._build_lsa_nolock()
 
     def process_hello(self, hello: dict) -> None:
         if hello.get("type") != "HELLO":
@@ -91,22 +89,31 @@ class LinkStateRouter:
         if not sender or sender == self.node_id:
             return
 
+        lsa_to_flood = None
         with self.lock:
             now = time.time()
+            is_first = sender not in self.neighbor_last_seen
             self.neighbor_last_seen[sender] = now
             cost = int(hello.get("cost", 1))
 
-            # If neighbor was marked down or is new, restore/add link
+            if is_first:
+                print(f"[{self.node_id}] Vecino detectado: {sender}", flush=True)
+
             changed = False
             if sender not in self.neighbors or self.neighbors[sender] != cost:
                 self.neighbors[sender] = cost
                 changed = True
 
-            if changed:
+            if changed or is_first:
+                if changed and not is_first:
+                    print(f"[{self.node_id}] Enlace actualizado con {sender}", flush=True)
                 self._update_self_lsa_state()
                 self._rebuild_topology_and_routes()
-                lsa = self.build_lsa()
-                self.flood_lsa(lsa, sender=self.node_id)
+                lsa_to_flood = self._build_lsa_nolock()
+
+        # Flood LSA fuera del lock para evitar deadlock
+        if lsa_to_flood:
+            self.flood_lsa(lsa_to_flood, sender=self.node_id)
 
     def process_lsa(self, lsa: dict, sender: Optional[str] = None) -> bool:
         if lsa.get("type") != "LSA":
@@ -120,20 +127,20 @@ class LinkStateRouter:
             previous_seq = self.seen_sequences.get(origin)
             if previous_seq is not None and seq <= previous_seq:
                 return False
-
             self.seen_sequences[origin] = seq
             links = lsa.get("links", [])
             self.latest_lsas[origin] = (seq, links)
             self._rebuild_topology_and_routes()
-            return True
+        return True
 
     def flood_lsa(self, lsa: dict, sender: Optional[str] = None) -> List[Tuple[str, dict]]:
         lsa_to_send = dict(lsa)
         lsa_to_send["from"] = self.node_id
-        
-        is_new = self.process_lsa(lsa, sender)
+
+        is_own = lsa.get("origin") == self.node_id
+        is_new = is_own or self.process_lsa(lsa, sender)
         forwarded = []
-        if is_new or lsa.get("origin") == self.node_id:
+        if is_new:
             with self.lock:
                 active_neighbors = list(self.neighbors.keys())
 
@@ -150,7 +157,7 @@ class LinkStateRouter:
         return forwarded
 
     def _rebuild_topology_and_routes(self) -> None:
-        # Reconstruct graph from latest LSAs
+        """Reconstruye la topologia y la tabla de rutas. Llamar dentro del lock."""
         topology: Dict[str, Dict[str, int]] = {self.node_id: dict(self.neighbors)}
         for origin, (_, links) in self.latest_lsas.items():
             adjacency = {link["to"]: int(link["cost"]) for link in links if "to" in link}
@@ -158,35 +165,39 @@ class LinkStateRouter:
             for neighbor in adjacency:
                 topology.setdefault(neighbor, {})
             topology.setdefault(origin, {})
-
         self.topology = topology
+        # _write_routing_table no adquiere lock, puede llamarse dentro
         self._write_routing_table()
 
     def _write_routing_table(self) -> None:
+        """Calcula rutas Dijkstra y actualiza self.routing_table. Llamar dentro del lock."""
         paths = compute_shortest_paths(self.topology, self.node_id)
         routing_table = {}
         for dest, (next_hop, cost) in paths.items():
             if dest == self.node_id:
                 continue
-            ip, port = self.node_addresses.get(next_hop, (self.host, self.port + 1000 + len(dest)))
+            addr = self.node_addresses.get(next_hop)
+            if addr:
+                ip, port = addr
+            else:
+                ip, port = self.host, self.port + 1000
             routing_table[dest] = (next_hop, cost, ip, port)
 
+        changed = routing_table != self.routing_table
         self.routing_table = routing_table
 
-        # Escribir CSV en disco sin bloquear locks
-        threading.Thread(
-            target=self._save_csv_disk,
-            args=(dict(routing_table),),
-            daemon=True,
-        ).start()
+        if changed:
+            routes_str = ", ".join([f"{d}->{nh}" for d, (nh, _, _, _) in routing_table.items()])
+            print(f"[{self.node_id}] Rutas actualizadas: [{routes_str}]", flush=True)
+            threading.Thread(target=self._save_csv_disk, args=(dict(routing_table),), daemon=True).start()
 
     def _save_csv_disk(self, table: Dict[str, Tuple[str, int, str, int]]) -> None:
         try:
             output_dir = os.path.join(os.getcwd(), "output")
             os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv")
-            with open(output_path, "w", newline="", encoding="utf-8") as handle:
-                writer = csv.writer(handle)
+            path = os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv")
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
                 writer.writerow(["destino", "siguiente_salto", "costo", "ip", "puerto"])
                 for dest, (next_hop, cost, ip, port) in table.items():
                     writer.writerow([dest, next_hop, cost, ip, port])
@@ -197,10 +208,10 @@ class LinkStateRouter:
         dest = packet.get("nodo_destino")
         with self.lock:
             route = self.routing_table.get(dest) if dest else None
-        if route:
-            next_hop, _, ip, port = route
-            return {"next_hop": next_hop, "ip": ip, "port": port, "packet": packet}
-        return {"next_hop": None, "ip": None, "port": None, "packet": packet}
+        if route and len(route) >= 4:
+            next_hop, cost, ip, port = route[0], route[1], route[2], route[3]
+            return {"next_hop": next_hop, "cost": cost, "ip": ip, "port": port}
+        return {"next_hop": None, "cost": 0, "ip": None, "port": None}
 
     def start(self) -> None:
         """Inicia el servidor TCP y los hilos de fondo del router."""
@@ -210,18 +221,18 @@ class LinkStateRouter:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(10)
+        self.server_socket.listen(20)
 
-        t_server = threading.Thread(target=self._server_loop, daemon=True, name=f"{self.node_id}-server")
-        t_hello = threading.Thread(target=self._hello_loop, daemon=True, name=f"{self.node_id}-hello")
-        t_liveness = threading.Thread(target=self._liveness_loop, daemon=True, name=f"{self.node_id}-liveness")
-        t_lsa_periodic = threading.Thread(target=self._lsa_periodic_loop, daemon=True, name=f"{self.node_id}-lsa-period")
-
-        self.threads = [t_server, t_hello, t_liveness, t_lsa_periodic]
+        self.threads = [
+            threading.Thread(target=self._server_loop, daemon=True, name=f"{self.node_id}-server"),
+            threading.Thread(target=self._hello_loop, daemon=True, name=f"{self.node_id}-hello"),
+            threading.Thread(target=self._liveness_loop, daemon=True, name=f"{self.node_id}-liveness"),
+            threading.Thread(target=self._lsa_periodic_loop, daemon=True, name=f"{self.node_id}-lsa"),
+        ]
         for t in self.threads:
             t.start()
 
-        # Emitir LSA inicial tras levantar el servidor TCP
+        # Emitir LSA inicial
         lsa = self.build_lsa()
         self.flood_lsa(lsa, sender=self.node_id)
 
@@ -237,12 +248,8 @@ class LinkStateRouter:
     def _server_loop(self) -> None:
         while self.running:
             try:
-                client_sock, addr = self.server_socket.accept()
-                threading.Thread(
-                    target=self._handle_client,
-                    args=(client_sock,),
-                    daemon=True,
-                ).start()
+                client_sock, _ = self.server_socket.accept()
+                threading.Thread(target=self._handle_client, args=(client_sock,), daemon=True).start()
             except Exception:
                 if not self.running:
                     break
@@ -250,31 +257,38 @@ class LinkStateRouter:
     def _handle_client(self, client_sock: socket.socket) -> None:
         with client_sock:
             while self.running:
-                packet = recv_packet(client_sock)
-                if packet is None:
+                try:
+                    packet = recv_packet(client_sock)
+                    if packet is None:
+                        break
+                    self._handle_packet(packet)
+                except Exception:
                     break
-                self._handle_packet(packet)
 
     def _handle_packet(self, packet: dict) -> None:
         p_type = packet.get("type")
         if p_type == "HELLO":
             self.process_hello(packet)
         elif p_type == "LSA":
-            sender = packet.get("from")
-            self.flood_lsa(packet, sender=sender)
+            self.flood_lsa(packet, sender=packet.get("from"))
         elif "nodo_destino" in packet:
-            # Data packet
             dest = packet["nodo_destino"]
+            orig = packet.get("nodo_origen")
             if dest == self.node_id:
-                print(f"[{self.node_id}] Paquete de datos recibido para mí:", packet)
+                print(f"[{self.node_id}] Paquete recibido de {orig}: {packet.get('mensaje')}", flush=True)
             else:
                 route_info = self.forward_data_packet(packet)
                 next_hop = route_info["next_hop"]
                 if next_hop:
                     ip, port = route_info["ip"], route_info["port"]
-                    self._send_to_address(ip, port, packet)
+                    print(f"[{self.node_id}] Reenviando {orig} -> {dest} por {next_hop}", flush=True)
+                    threading.Thread(
+                        target=self._send_to_address,
+                        args=(ip, port, packet),
+                        daemon=True,
+                    ).start()
                 else:
-                    print(f"[{self.node_id}] ERROR: No hay ruta hacia {dest}")
+                    print(f"[{self.node_id}] Sin ruta para {orig} -> {dest}", flush=True)
 
     def _send_to_node(self, target_id: str, packet: dict) -> bool:
         addr = self.node_addresses.get(target_id)
@@ -285,11 +299,14 @@ class LinkStateRouter:
     def _send_to_address(self, ip: str, port: int, packet: dict) -> bool:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(2.0)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.settimeout(3.0)
                 s.connect((ip, port))
                 send_packet(s, packet)
                 return True
-        except Exception:
+        except Exception as e:
+            if "nodo_destino" in packet:
+                print(f"[{self.node_id}] Error enviando a {ip}:{port}: {e}", flush=True)
             return False
 
     def _hello_loop(self) -> None:
@@ -310,26 +327,28 @@ class LinkStateRouter:
         while self.running:
             time.sleep(1.0)
             now = time.time()
-            changed = False
+            lsa_to_flood = None
             with self.lock:
+                changed = False
                 for neighbor_id in list(self.neighbors.keys()):
                     last = self.neighbor_last_seen.get(neighbor_id)
                     if last is not None and (now - last) > self.dead_interval:
-                        print(f"[{self.node_id}] VECINO CAÍDO: {neighbor_id} (sin HELLO por > {self.dead_interval}s)")
+                        print(f"[{self.node_id}] VECINO CAIDO: {neighbor_id} (sin HELLO por > {self.dead_interval}s)", flush=True)
                         del self.neighbors[neighbor_id]
                         changed = True
 
                 if changed:
                     self._update_self_lsa_state()
                     self._rebuild_topology_and_routes()
-            if changed:
-                lsa = self.build_lsa()
-                self.flood_lsa(lsa, sender=self.node_id)
+                    lsa_to_flood = self._build_lsa_nolock()
+
+            if lsa_to_flood:
+                self.flood_lsa(lsa_to_flood, sender=self.node_id)
 
     def _lsa_periodic_loop(self) -> None:
         while self.running:
             time.sleep(self.lsa_interval)
-            lsa = self.build_lsa()
+            lsa = self.build_lsa()  # Adquiere/libera lock internamente
             self.flood_lsa(lsa, sender=self.node_id)
 
 
@@ -341,18 +360,18 @@ def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dic
     distances = {node: float("inf") for node in nodes}
     distances[source] = 0
     previous: Dict[str, str] = {}
-    priority_queue = [(0, source)]
+    pq = [(0, source)]
 
-    while priority_queue:
-        current_cost, node = heapq.heappop(priority_queue)
+    while pq:
+        current_cost, node = heapq.heappop(pq)
         if current_cost > distances[node]:
             continue
         for neighbor, weight in graph.get(node, {}).items():
-            candidate_cost = current_cost + weight
-            if candidate_cost < distances[neighbor]:
-                distances[neighbor] = candidate_cost
+            candidate = current_cost + weight
+            if candidate < distances[neighbor]:
+                distances[neighbor] = candidate
                 previous[neighbor] = node
-                heapq.heappush(priority_queue, (candidate_cost, neighbor))
+                heapq.heappush(pq, (candidate, neighbor))
 
     paths = {}
     for node in nodes:

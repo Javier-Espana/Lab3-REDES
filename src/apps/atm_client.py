@@ -94,6 +94,11 @@ class ATMClient:
                 s.settimeout(3.0)
                 s.connect(self.gateway_addr)
                 send_packet(s, packet)
+                try:
+                    s.shutdown(socket.SHUT_WR)
+                except Exception:
+                    pass
+                time.sleep(0.01)
         except Exception as e:
             print(f"[{self.node_id}] Error enviando paquete a gateway {self.gateway_addr}: {e}")
             with self.lock:

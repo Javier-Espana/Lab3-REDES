@@ -1,4 +1,0 @@
-destino,siguiente_salto,costo,ip,puerto
-R3,R3,1,127.0.0.1,6002
-R2,R3,3,127.0.0.1,6002
-R1,R3,5,127.0.0.1,6002

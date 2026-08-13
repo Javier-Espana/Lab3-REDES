@@ -79,9 +79,13 @@ class RoutingTests(unittest.TestCase):
 
             # Dar tiempo para estabilizar el intercambio LSA
             time.sleep(2.5)
+            print("\nR1 routing table:", {d: nh for d, (nh, _, _, _) in r1.routing_table.items()}, flush=True)
+            print("R2 routing table:", {d: nh for d, (nh, _, _, _) in r2.routing_table.items()}, flush=True)
 
             # 1. Login
+            print("\nSending login request from ATM...", flush=True)
             login_res = atm.login("4111111111111111", "1234", timeout=5.0)
+            print("Login result in test:", login_res, flush=True)
             self.assertIsNotNone(login_res)
             self.assertEqual(login_res.get("action"), "login_ok")
 

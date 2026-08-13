@@ -1,4 +1,40 @@
 {
+  "_comment": "Fuente única de verdad de la red. Cada persona coloca su IP una sola vez en 'machines'. Los nodos y end_hosts hacen referencia a su propietario (owner) y puerto.",
+  "machines": {
+    "Espana": "100.93.223.104",
+    "Tono": "100.64.209.42",
+    "Angel": "100.71.208.101",
+    "Roberto": "0.0.0.0",
+    "Mia": "0.0.0.0",
+    "Anggelie": "0.0.0.0"
+
+  },
+  "nodes": {
+    "R1": {
+      "owner": "Espana",
+      "port": 5001
+    },
+    "R2": {
+      "owner": "Espana",
+      "port": 5002
+    },
+    "R3": {
+      "owner": "Espana",
+      "port": 5003
+    },
+    "R4": {
+      "owner": "Tono",
+      "port": 5004
+    },
+    "R5": {
+      "owner": "Tono",
+      "port": 5005
+    },
+    "R6": {
+      "owner": "Tono",
+      "port": 5006
+    }
+  },
   "links": [
     {
       "a": "R1",
@@ -38,14 +74,14 @@
   ],
   "end_hosts": {
     "ATM1": {
-      "owner": "P1",
-      "port": 6101,
+      "owner": "Espana",
+      "port": 5020,
       "gateway": "R1",
       "cost": 1
     },
     "BANK1": {
-      "owner": "P2",
-      "port": 6102,
+      "owner": "Tono",
+      "port": 5010,
       "gateway": "R4",
       "cost": 1
     }
