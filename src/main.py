@@ -47,10 +47,15 @@ def _resolve_config_path(given: str) -> str:
 # ---------------------------------------------------------------------------
 # Modo: ejecutar un nodo individual
 # ---------------------------------------------------------------------------
-def _bind_host(local: bool) -> str:
-    """En modo Tailscale se hace bind a 0.0.0.0 (todas las interfaces).
-    En modo local se hace bind a 127.0.0.1."""
-    return "127.0.0.1" if (local or not _USE_TAILSCALE) else "0.0.0.0"
+def _check_bind_error(node_id: str, ip: str, owner: str, err: OSError) -> None:
+    """Imprime un error claro cuando la IP del nodo no pertenece a esta maquina."""
+    import errno
+    if err.errno == errno.EADDRNOTAVAIL:  # 99: Cannot assign requested address
+        print(f"\nError: No se puede iniciar [{node_id}] en {ip}.")
+        print(f"  Ese nodo pertenece a '{owner}' (IP: {ip}), que no es esta maquina.")
+        print(f"  Revisa que estas ejecutando el participante correcto.")
+    else:
+        print(f"\nError al iniciar [{node_id}] en {ip}: {err}")
 
 
 def run_single_node(node_id: str, config_path: str, local: bool = False) -> None:
@@ -62,52 +67,57 @@ def run_single_node(node_id: str, config_path: str, local: bool = False) -> None
         sys.exit(1)
 
     node_type = node_info.get("type", "router")
-    advertised_ip = node_info.get("ip", "127.0.0.1")
+    ip = node_info.get("ip", "127.0.0.1")
     port = int(node_info.get("port", 5000))
-    bind_ip = _bind_host(local)
+    owner = node_info.get("owner", "?")
     node_addresses = {nid: (info["ip"], int(info["port"])) for nid, info in config.nodes.items()}
 
     mode = "Local" if (local or not _USE_TAILSCALE) else "Tailscale"
-    print(f"[{node_id}] Modo: {mode} | Bind: {bind_ip}:{port} | Advertised: {advertised_ip}:{port}")
+    print(f"[{node_id}] Modo: {mode} | IP: {ip}:{port}")
 
-    if node_type == "router":
-        router = LinkStateRouter(
-            node_id=node_id,
-            neighbors=node_info.get("neighbors", {}),
-            host=bind_ip,
-            port=port,
-            node_addresses=node_addresses,
-        )
-        print(f"Iniciando Router [{node_id}] en {bind_ip}:{port}...")
-        router.start()
-        try:
-            while True:
-                time.sleep(1.0)
-        except KeyboardInterrupt:
-            print(f"\nDeteniendo Router [{node_id}]...")
-            router.stop()
+    try:
+        if node_type == "router":
+            router = LinkStateRouter(
+                node_id=node_id,
+                neighbors=node_info.get("neighbors", {}),
+                host=ip,
+                port=port,
+                node_addresses=node_addresses,
+            )
+            print(f"Iniciando Router [{node_id}] en {ip}:{port}...")
+            router.start()
+            try:
+                while True:
+                    time.sleep(1.0)
+            except KeyboardInterrupt:
+                print(f"\nDeteniendo Router [{node_id}]...")
+                router.stop()
 
-    elif node_type == "bank":
-        gw_id = node_info.get("gateway")
-        gw_addr = node_addresses.get(gw_id) if gw_id else None
-        bank = BankServer(node_id=node_id, host=bind_ip, port=port, gateway_addr=gw_addr)
-        print(f"Iniciando Banco [{node_id}] en {bind_ip}:{port}...")
-        bank.start()
-        try:
-            while True:
-                time.sleep(1.0)
-        except KeyboardInterrupt:
-            print(f"\nDeteniendo Banco [{node_id}]...")
-            bank.stop()
+        elif node_type == "bank":
+            gw_id = node_info.get("gateway")
+            gw_addr = node_addresses.get(gw_id) if gw_id else None
+            bank = BankServer(node_id=node_id, host=ip, port=port, gateway_addr=gw_addr)
+            print(f"Iniciando Banco [{node_id}] en {ip}:{port}...")
+            bank.start()
+            try:
+                while True:
+                    time.sleep(1.0)
+            except KeyboardInterrupt:
+                print(f"\nDeteniendo Banco [{node_id}]...")
+                bank.stop()
 
-    elif node_type == "atm":
-        gw_id = node_info.get("gateway")
-        gw_addr = node_addresses.get(gw_id) if gw_id else None
-        atm = ATMClient(node_id=node_id, bank_id="BANK1", host=bind_ip, port=port, gateway_addr=gw_addr)
-        print(f"Iniciando Cajero [{node_id}] en {bind_ip}:{port}...")
-        atm.start()
-        _atm_cli(atm, node_id)
-        atm.stop()
+        elif node_type == "atm":
+            gw_id = node_info.get("gateway")
+            gw_addr = node_addresses.get(gw_id) if gw_id else None
+            atm = ATMClient(node_id=node_id, bank_id="BANK1", host=ip, port=port, gateway_addr=gw_addr)
+            print(f"Iniciando Cajero [{node_id}] en {ip}:{port}...")
+            atm.start()
+            _atm_cli(atm, node_id)
+            atm.stop()
+
+    except OSError as e:
+        _check_bind_error(node_id, ip, owner, e)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -131,47 +141,62 @@ def run_participant_nodes(participant_id: str, config_path: str, local: bool = F
     print("=" * 50)
 
     node_addresses = {nid: (info["ip"], int(info["port"])) for nid, info in config.nodes.items()}
-    bind_ip = _bind_host(local)
 
     routers: dict[str, LinkStateRouter] = {}
     banks: list[BankServer] = []
     atm_client: ATMClient | None = None
 
-    # Routers primero
-    for nid in assigned:
-        info = config.nodes[nid]
-        if info.get("type") == "router":
-            r = LinkStateRouter(
-                node_id=nid,
-                neighbors=info.get("neighbors", {}),
-                host=bind_ip,
-                port=int(info["port"]),
-                node_addresses=node_addresses,
-            )
-            print(f"Iniciando Router [{nid}] en {bind_ip}:{info['port']}...")
-            r.start()
-            routers[nid] = r
+    try:
+        # Routers primero
+        for nid in assigned:
+            info = config.nodes[nid]
+            if info.get("type") == "router":
+                r = LinkStateRouter(
+                    node_id=nid,
+                    neighbors=info.get("neighbors", {}),
+                    host=info["ip"],
+                    port=int(info["port"]),
+                    node_addresses=node_addresses,
+                )
+                print(f"Iniciando Router [{nid}] en {info['ip']}:{info['port']}...")
+                r.start()
+                routers[nid] = r
 
-    # Bancos
-    for nid in assigned:
-        info = config.nodes[nid]
-        if info.get("type") == "bank":
-            gw_id = info.get("gateway")
-            gw_addr = node_addresses.get(gw_id) if gw_id else None
-            b = BankServer(node_id=nid, host=bind_ip, port=int(info["port"]), gateway_addr=gw_addr)
-            print(f"Iniciando Banco [{nid}] en {bind_ip}:{info['port']}...")
-            b.start()
-            banks.append(b)
+        # Bancos
+        for nid in assigned:
+            info = config.nodes[nid]
+            if info.get("type") == "bank":
+                gw_id = info.get("gateway")
+                gw_addr = node_addresses.get(gw_id) if gw_id else None
+                b = BankServer(node_id=nid, host=info["ip"], port=int(info["port"]), gateway_addr=gw_addr)
+                print(f"Iniciando Banco [{nid}] en {info['ip']}:{info['port']}...")
+                b.start()
+                banks.append(b)
 
-    # Cajero ATM
-    for nid in assigned:
-        info = config.nodes[nid]
-        if info.get("type") == "atm":
-            gw_id = info.get("gateway")
-            gw_addr = node_addresses.get(gw_id) if gw_id else None
-            atm_client = ATMClient(node_id=nid, bank_id="BANK1", host=bind_ip, port=int(info["port"]), gateway_addr=gw_addr)
-            print(f"Iniciando Cajero [{nid}] en {bind_ip}:{info['port']}...")
-            atm_client.start()
+        # Cajero ATM
+        for nid in assigned:
+            info = config.nodes[nid]
+            if info.get("type") == "atm":
+                gw_id = info.get("gateway")
+                gw_addr = node_addresses.get(gw_id) if gw_id else None
+                atm_client = ATMClient(node_id=nid, bank_id="BANK1", host=info["ip"], port=int(info["port"]), gateway_addr=gw_addr)
+                print(f"Iniciando Cajero [{nid}] en {info['ip']}:{info['port']}...")
+                atm_client.start()
+
+    except OSError as e:
+        # Detener routers y bancos que ya arrancaron
+        for r in routers.values():
+            r.stop()
+        for b in banks:
+            b.stop()
+        # Buscar el nodo que fallo para dar contexto
+        failed_nid = next(
+            (nid for nid in assigned if config.nodes[nid]["ip"] not in ("127.0.0.1",) and nid not in routers and nid not in [b.node_id for b in banks]),
+            "?"
+        )
+        failed_info = config.nodes.get(failed_nid, {})
+        _check_bind_error(failed_nid, failed_info.get("ip", "?"), failed_info.get("owner", participant_id), e)
+        sys.exit(1)
 
     print("\nTodos tus nodos estan corriendo.")
 

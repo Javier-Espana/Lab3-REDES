@@ -11,27 +11,27 @@
   },
   "nodes": {
     "R1": {
-      "owner": "Espana",
+      "owner": "Tono",
       "port": 5001
     },
     "R2": {
-      "owner": "Espana",
+      "owner": "Tono",
       "port": 5002
     },
     "R3": {
-      "owner": "Espana",
+      "owner": "Tono",
       "port": 5003
     },
     "R4": {
-      "owner": "Tono",
+      "owner": "Espana",
       "port": 5004
     },
     "R5": {
-      "owner": "Tono",
+      "owner": "Espana",
       "port": 5005
     },
     "R6": {
-      "owner": "Tono",
+      "owner": "Espana",
       "port": 5006
     }
   },
@@ -74,13 +74,13 @@
   ],
   "end_hosts": {
     "ATM1": {
-      "owner": "Espana",
+      "owner": "Tono",
       "port": 5020,
       "gateway": "R1",
       "cost": 1
     },
     "BANK1": {
-      "owner": "Tono",
+      "owner": "Espana",
       "port": 5010,
       "gateway": "R4",
       "cost": 1
