@@ -204,10 +204,10 @@ Cada persona corre un solo comando:
 
 ```bash
 # Persona 1:
-python src/main.py -p P1
+python src/main.py -p Espana
 
 # Persona 2:
-python src/main.py -p P2
+python src/main.py -p Roberto
 ```
 
 Este comando levanta automaticamente todos los nodos asignados a ese propietario en `topology.json`. Si tu grupo incluye el cajero ATM1, se abre el menu interactivo.
