@@ -224,9 +224,8 @@ class LinkStateRouter:
             output_dir = os.path.join(os.getcwd(), "output")
             os.makedirs(output_dir, exist_ok=True)
             target_files = [
-                os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv"),
                 os.path.join(output_dir, f"{self.node_id}_tabla_enrutamiento.csv"),
-                os.path.join(os.getcwd(), f"{self.node_id}_tabla_enrutamiento.csv"),
+                os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv"),
             ]
             for path in target_files:
                 with open(path, "w", newline="", encoding="utf-8") as f:
