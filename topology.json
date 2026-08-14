@@ -4,34 +4,34 @@
     "Espana": "100.119.213.97",
     "Tono": "100.64.209.42",
     "Angel": "100.71.208.101",
-    "Roberto": "0.0.0.0",
+    "Roberto": "100.84.155.75",
     "Mia": "0.0.0.0",
     "Anggelie": "0.0.0.0"
 
   },
   "nodes": {
     "R1": {
-      "owner": "Tono",
+      "owner": "Espana",
       "port": 5001
     },
     "R2": {
-      "owner": "Tono",
+      "owner": "Roberto",
       "port": 5002
     },
     "R3": {
-      "owner": "Tono",
+      "owner": "Espana",
       "port": 5003
     },
     "R4": {
-      "owner": "Espana",
+      "owner": "Angel",
       "port": 5004
     },
     "R5": {
-      "owner": "Espana",
+      "owner": "Angel",
       "port": 5005
     },
     "R6": {
-      "owner": "Espana",
+      "owner": "Angel",
       "port": 5006
     }
   },
@@ -74,14 +74,14 @@
   ],
   "end_hosts": {
     "ATM1": {
-      "owner": "Tono",
-      "port": 5020,
+      "owner": "Roberto",
+      "port": 6101,
       "gateway": "R1",
       "cost": 1
     },
     "BANK1": {
-      "owner": "Espana",
-      "port": 5010,
+      "owner": "Angel",
+      "port": 6102,
       "gateway": "R4",
       "cost": 1
     }

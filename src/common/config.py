@@ -24,11 +24,18 @@ class TopologyConfig:
             data = json.load(f)
         return cls(data, use_local_ips=use_local_ips)
 
+    def _resolve_machine_ip(self, owner: str) -> str:
+        owner_clean = owner.strip().upper()
+        for k, v in self.machines.items():
+            if k.strip().upper() == owner_clean:
+                return v
+        return "127.0.0.1"
+
     def _parse_mesh_format(self, use_local_ips: bool) -> None:
         # 1. Parse routers
         for node_id, info in self.raw_data.get("nodes", {}).items():
             owner = info.get("owner", "P1")
-            ip = "127.0.0.1" if use_local_ips else self.machines.get(owner, "127.0.0.1")
+            ip = "127.0.0.1" if use_local_ips else self._resolve_machine_ip(owner)
             self.nodes[node_id] = {
                 "type": info.get("type", "router"),
                 "owner": owner,
@@ -52,7 +59,7 @@ class TopologyConfig:
             owner = info.get("owner", "P1")
             gateway = info.get("gateway")
             cost = int(info.get("cost", 1))
-            ip = "127.0.0.1" if use_local_ips else self.machines.get(owner, "127.0.0.1")
+            ip = "127.0.0.1" if use_local_ips else self._resolve_machine_ip(owner)
             ntype = info.get("type", "atm" if host_id.upper().startswith("ATM") else "bank")
 
             self.nodes[host_id] = {
@@ -70,7 +77,11 @@ class TopologyConfig:
         self.nodes = self.raw_data.get("nodes", {})
 
     def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
-        return self.nodes.get(node_id)
+        target = node_id.strip().upper()
+        for k, v in self.nodes.items():
+            if k.strip().upper() == target:
+                return v
+        return None
 
     def get_neighbors(self, node_id: str) -> Dict[str, int]:
         node_info = self.get_node(node_id)
@@ -90,3 +101,4 @@ class TopologyConfig:
             nid for nid, info in self.nodes.items()
             if info.get("owner", "").strip().upper() == target
         ]
+

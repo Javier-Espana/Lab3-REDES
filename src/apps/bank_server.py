@@ -24,6 +24,8 @@ class BankServer:
         # Base de datos simulada de cuentas bancarias
         self.accounts = {
             "4111111111111111": {"pin": "1234", "balance": 500.00},
+            "5500005555555559": {"pin": "0000", "balance": 1200.50},
+            "23221": {"pin": "2310", "balance": 1000.00},
             "1234567890123456": {"pin": "0000", "balance": 1000.00},
         }
         self.sessions: Dict[str, str] = {}  # card -> session_status

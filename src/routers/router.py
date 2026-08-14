@@ -41,7 +41,7 @@ class LinkStateRouter:
         self.latest_lsas: Dict[str, Tuple[int, List[Dict[str, Any]]]] = {}
 
         self.topology: Dict[str, Dict[str, int]] = {self.node_id: dict(self.neighbors)}
-        self.routing_table: Dict[str, Tuple[str, int, str, int]] = {}
+        self.routing_table: Dict[str, Tuple[str, int, str, int, List[str]]] = {}
         self.neighbor_last_seen: Dict[str, float] = {}
 
         self.running = False
@@ -61,7 +61,7 @@ class LinkStateRouter:
     def build_hello(self) -> dict:
         with self.lock:
             self.hello_counter += 1
-            return {"type": "HELLO", "from": self.node_id, "cost": 1, "seq": self.hello_counter}
+            return {"type": "HELLO", "from": self.node_id}
 
     def _build_lsa_nolock(self) -> dict:
         """Construye un LSA. Llamar solo cuando ya se tiene self.lock."""
@@ -88,6 +88,8 @@ class LinkStateRouter:
         sender = hello.get("from")
         if not sender or sender == self.node_id:
             return
+
+        print(f"[{self.node_id}] HELLO recibido de {sender}", flush=True)
 
         lsa_to_flood = None
         with self.lock:
@@ -137,10 +139,19 @@ class LinkStateRouter:
         lsa_to_send = dict(lsa)
         lsa_to_send["from"] = self.node_id
 
-        is_own = lsa.get("origin") == self.node_id
+        origin = lsa.get("origin")
+        seq = lsa.get("seq", 0)
+        links = lsa.get("links", [])
+        is_own = origin == self.node_id
+
+        if is_own and sender == self.node_id:
+            print(f"[{self.node_id}] Publicando LSA seq={seq} con {len(links)} enlaces activos", flush=True)
+
         is_new = is_own or self.process_lsa(lsa, sender)
         forwarded = []
         if is_new:
+            if not is_own:
+                print(f"[{self.node_id}] LSA recibido de {origin} (seq={seq}, {len(links)} enlaces)", flush=True)
             with self.lock:
                 active_neighbors = list(self.neighbors.keys())
 
@@ -173,7 +184,7 @@ class LinkStateRouter:
         """Calcula rutas Dijkstra y actualiza self.routing_table. Llamar dentro del lock."""
         paths = compute_shortest_paths(self.topology, self.node_id)
         routing_table = {}
-        for dest, (next_hop, cost) in paths.items():
+        for dest, (next_hop, cost, path) in paths.items():
             if dest == self.node_id:
                 continue
             addr = self.node_addresses.get(next_hop)
@@ -181,26 +192,32 @@ class LinkStateRouter:
                 ip, port = addr
             else:
                 ip, port = self.host, self.port + 1000
-            routing_table[dest] = (next_hop, cost, ip, port)
+            routing_table[dest] = (next_hop, cost, ip, port, path)
 
         changed = routing_table != self.routing_table
         self.routing_table = routing_table
 
         if changed:
-            routes_str = ", ".join([f"{d}->{nh}" for d, (nh, _, _, _) in routing_table.items()])
-            print(f"[{self.node_id}] Rutas actualizadas: [{routes_str}]", flush=True)
+            print(f"[{self.node_id}] Tabla de ruteo actualizada ({len(routing_table)} destinos):", flush=True)
+            for dest, (nh, cost, ip, port, path) in routing_table.items():
+                print(f"   {dest} -> next_hop={nh} cost={cost} path={' -> '.join(path)}", flush=True)
             threading.Thread(target=self._save_csv_disk, args=(dict(routing_table),), daemon=True).start()
 
-    def _save_csv_disk(self, table: Dict[str, Tuple[str, int, str, int]]) -> None:
+    def _save_csv_disk(self, table: Dict[str, Tuple[str, int, str, int, List[str]]]) -> None:
         try:
             output_dir = os.path.join(os.getcwd(), "output")
             os.makedirs(output_dir, exist_ok=True)
-            path = os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv")
-            with open(path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["destino", "siguiente_salto", "costo", "ip", "puerto"])
-                for dest, (next_hop, cost, ip, port) in table.items():
-                    writer.writerow([dest, next_hop, cost, ip, port])
+            target_files = [
+                os.path.join(output_dir, f"{self.node_id}_nodo_tabla_enrutamiento.csv"),
+                os.path.join(output_dir, f"{self.node_id}_tabla_enrutamiento.csv"),
+                os.path.join(os.getcwd(), f"{self.node_id}_tabla_enrutamiento.csv"),
+            ]
+            for path in target_files:
+                with open(path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["destino", "siguiente_salto", "costo", "ip", "puerto"])
+                    for dest, (next_hop, cost, ip, port, _) in table.items():
+                        writer.writerow([dest, next_hop, cost, ip, port])
         except Exception:
             pass
 
@@ -273,22 +290,25 @@ class LinkStateRouter:
             self.flood_lsa(packet, sender=packet.get("from"))
         elif "nodo_destino" in packet:
             dest = packet["nodo_destino"]
-            orig = packet.get("nodo_origen")
+            orig = packet.get("nodo_origen", "?")
             if dest == self.node_id:
-                print(f"[{self.node_id}] Paquete recibido de {orig}: {packet.get('mensaje')}", flush=True)
+                print(f"\n[{self.node_id}] *** MENSAJE RECIBIDO ***")
+                print(f"   De:      {orig}")
+                print(f"   Mensaje: {packet.get('mensaje')}")
+                print(f"{'─'*50}\n", flush=True)
             else:
                 route_info = self.forward_data_packet(packet)
                 next_hop = route_info["next_hop"]
                 if next_hop:
                     ip, port = route_info["ip"], route_info["port"]
-                    print(f"[{self.node_id}] Reenviando {orig} -> {dest} por {next_hop}", flush=True)
+                    print(f"[{self.node_id}][FWD] Reenviando a {dest} vía {next_hop} ({ip}:{port})", flush=True)
                     threading.Thread(
                         target=self._send_to_address,
                         args=(ip, port, packet),
                         daemon=True,
                     ).start()
                 else:
-                    print(f"[{self.node_id}] Sin ruta para {orig} -> {dest}", flush=True)
+                    print(f"[{self.node_id}][FWD] Sin ruta para '{dest}'. Descartando.", flush=True)
 
     def _send_to_node(self, target_id: str, packet: dict) -> bool:
         addr = self.node_addresses.get(target_id)
@@ -304,9 +324,7 @@ class LinkStateRouter:
                 s.connect((ip, port))
                 send_packet(s, packet)
                 return True
-        except Exception as e:
-            if "nodo_destino" in packet:
-                print(f"[{self.node_id}] Error enviando a {ip}:{port}: {e}", flush=True)
+        except Exception:
             return False
 
     def _hello_loop(self) -> None:
@@ -316,11 +334,9 @@ class LinkStateRouter:
             with self.lock:
                 target_neighbors = list(self.neighbors.keys())
             for neighbor_id in target_neighbors:
-                threading.Thread(
-                    target=self._send_to_node,
-                    args=(neighbor_id, hello_msg),
-                    daemon=True,
-                ).start()
+                ok = self._send_to_node(neighbor_id, hello_msg)
+                mark = "✓" if ok else "✗ (sin respuesta)"
+                print(f"[{self.node_id}] HELLO -> {neighbor_id} {mark}", flush=True)
             time.sleep(self.hello_interval)
 
     def _liveness_loop(self) -> None:
@@ -352,7 +368,7 @@ class LinkStateRouter:
             self.flood_lsa(lsa, sender=self.node_id)
 
 
-def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dict[str, Tuple[str, int]]:
+def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dict[str, Tuple[str, int, List[str]]]:
     nodes = set(graph.keys())
     for neighbors in graph.values():
         nodes.update(neighbors.keys())
@@ -377,11 +393,16 @@ def compute_shortest_paths(graph: Dict[str, Dict[str, int]], source: str) -> Dic
     for node in nodes:
         if node == source or distances[node] == float("inf"):
             continue
-        next_hop = node
-        current = node
-        while previous.get(current) is not None and previous[current] != source:
-            current = previous[current]
-        if previous.get(current) == source:
-            next_hop = current
-        paths[node] = (next_hop, int(distances[node]))
+
+        curr: Optional[str] = node
+        path = []
+        while curr is not None:
+            path.append(curr)
+            curr = previous.get(curr)
+        path.reverse()
+
+        next_hop = path[1] if len(path) > 1 else node
+        paths[node] = (next_hop, int(distances[node]), path)
+
     return paths
+

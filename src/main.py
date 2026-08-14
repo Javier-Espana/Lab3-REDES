@@ -344,12 +344,13 @@ def _atm_cli(atm: ATMClient, node_id: str) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(description="Laboratorio 3 - Enrutamiento Link State")
+    parser.add_argument("target", nargs="?", default=None, help="Nodo o propietario a ejecutar (ej: Espana, Angel, R1, P1)")
     parser.add_argument("--config", default="topology.json", help="Ruta al topology.json")
     parser.add_argument("--node", default=None, help="Nodo individual a ejecutar (ej: R1, BANK1, ATM1)")
     parser.add_argument(
         "--participant", "--person", "-p",
         default=None,
-        help="Ejecutar todos los nodos de un propietario (ej: P1, P2)",
+        help="Ejecutar todos los nodos de un propietario (ej: Espana, Angel, P1)",
     )
     parser.add_argument("--local", action="store_true", help="Forzar IPs locales (127.0.0.1)")
     parser.add_argument("--demo", action="store_true", help="Ejecutar simulacion automatizada completa")
@@ -362,12 +363,31 @@ def main() -> None:
         print(f"Error: {e}")
         sys.exit(1)
 
-    if args.participant:
-        run_participant_nodes(args.participant, config_path, local=args.local)
-    elif args.node:
-        run_single_node(args.node, config_path, local=args.local)
-    else:
+    participant = args.participant
+    node = args.node
+
+    if args.target:
+        if args.target.lower() == "demo":
+            run_demo(config_path)
+            return
+
+        config = _load_config(config_path, local=args.local)
+        target_clean = args.target.strip().upper()
+        # Verificar si coincide con algún nodo
+        node_match = next((nid for nid in config.nodes if nid.upper() == target_clean), None)
+        if node_match and not args.participant:
+            node = node_match
+        else:
+            participant = args.target
+
+    if participant:
+        run_participant_nodes(participant, config_path, local=args.local)
+    elif node:
+        run_single_node(node, config_path, local=args.local)
+    elif args.demo:
         run_demo(config_path)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
