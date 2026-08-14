@@ -314,29 +314,88 @@ def run_demo(config_path: str) -> None:
 # CLI interactivo del cajero ATM
 # ---------------------------------------------------------------------------
 def _atm_cli(atm: ATMClient, node_id: str) -> None:
-    print("\n--- Menu ATM ---")
-    print("Comandos: login, withdraw <monto>, logout, exit\n")
+    # Desactivar logs de router por defecto al usar el menú interactivo
+    set_router_verbose(False)
+    print("\n==================================================")
+    print(f"               MENU CAJERO ATM ({node_id})        ")
+    print("==================================================")
+    print("Comandos disponibles:")
+    print("  - login               : Iniciar sesion (pide tarjeta y PIN)")
+    print("  - withdraw [monto]    : Realizar retiro de dinero")
+    print("  - logout              : Cerrar sesion")
+    print("  - logs [on|off]       : Mostrar/ocultar logs de red en tiempo real")
+    print("  - exit                : Salir del programa\n")
     try:
         while True:
-            cmd = input(f"{node_id}> ").strip().split()
-            if not cmd:
+            cmd_raw = input(f"{node_id}> ").strip()
+            if not cmd_raw:
                 continue
+            cmd = cmd_raw.split()
             action = cmd[0].lower()
-            if action == "exit":
+
+            if action in ("exit", "quit"):
+                print("[ATM] Saliendo del cajero...")
                 break
+
+            elif action in ("logs", "verbose"):
+                sub = cmd[1].lower() if len(cmd) > 1 else ""
+                if sub in ("on", "true", "1"):
+                    set_router_verbose(True)
+                    print("[INFO] Logs de enrutamiento ACTIVADOS.")
+                elif sub in ("off", "false", "0"):
+                    set_router_verbose(False)
+                    print("[INFO] Logs de enrutamiento DESACTIVADOS.")
+                else:
+                    # Toggle
+                    current = get_router_verbose()
+                    new_state = not current
+                    set_router_verbose(new_state)
+                    status = "ACTIVADOS" if new_state else "DESACTIVADOS"
+                    print(f"[INFO] Logs de enrutamiento {status}.")
+
             elif action == "login":
-                card = input("Tarjeta: ").strip()
-                pin = input("PIN: ").strip()
-                print("Respuesta:", atm.login(card, pin))
+                card = input("  Tarjeta: ").strip()
+                pin = input("  PIN: ").strip()
+                print("  Procesando login...")
+                res = atm.login(card, pin)
+                if res:
+                    print(f"  [RESPUESTA] {res.get('action')}: {res.get('data', {}).get('message', '')}")
+                else:
+                    print("  [ERROR] Sin respuesta del banco o tiempo de espera agotado.")
+
             elif action == "withdraw":
-                amt = float(cmd[1]) if len(cmd) > 1 else float(input("Monto: ").strip())
-                print("Respuesta:", atm.withdraw(amt))
+                amt = None
+                if len(cmd) > 1:
+                    try:
+                        amt = float(cmd[1])
+                    except ValueError:
+                        pass
+                if amt is None:
+                    try:
+                        amt = float(input("  Monto a retirar: ").strip())
+                    except ValueError:
+                        print("  [ERROR] Monto invalido.")
+                        continue
+                print(f"  Procesando retiro de ${amt}...")
+                res = atm.withdraw(amt)
+                if res:
+                    print(f"  [RESPUESTA] {res.get('action')}: {res.get('data')}")
+                else:
+                    print("  [ERROR] Sin respuesta del banco o tiempo de espera agotado.")
+
             elif action == "logout":
-                print("Respuesta:", atm.logout())
+                print("  Procesando logout...")
+                res = atm.logout()
+                if res:
+                    print(f"  [RESPUESTA] {res.get('action')}: {res.get('data', {}).get('message', '')}")
+                else:
+                    print("  [ERROR] Sin respuesta del banco o tiempo de espera agotado.")
+
             else:
-                print("Comando desconocido.")
+                print("Comando desconocido. Usa: login, withdraw <monto>, logout, logs, exit")
+
     except KeyboardInterrupt:
-        pass
+        print("\n[ATM] Interrupcion detectada.")
 
 
 # ---------------------------------------------------------------------------

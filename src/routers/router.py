@@ -10,6 +10,22 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from common.framing import recv_packet, send_packet
 
+_VERBOSE = True
+
+
+def set_router_verbose(enabled: bool) -> None:
+    global _VERBOSE
+    _VERBOSE = enabled
+
+
+def get_router_verbose() -> bool:
+    return _VERBOSE
+
+
+def router_print(*args, **kwargs) -> None:
+    if _VERBOSE:
+        print(*args, **kwargs)
+
 
 class LinkStateRouter:
     def __init__(
@@ -89,7 +105,7 @@ class LinkStateRouter:
         if not sender or sender == self.node_id:
             return
 
-        print(f"[{self.node_id}] HELLO recibido de {sender}", flush=True)
+        router_print(f"[{self.node_id}] HELLO recibido de {sender}", flush=True)
 
         lsa_to_flood = None
         with self.lock:
@@ -99,7 +115,7 @@ class LinkStateRouter:
             cost = int(hello.get("cost", 1))
 
             if is_first:
-                print(f"[{self.node_id}] Vecino detectado: {sender}", flush=True)
+                router_print(f"[{self.node_id}] Vecino detectado: {sender}", flush=True)
 
             changed = False
             if sender not in self.neighbors or self.neighbors[sender] != cost:
@@ -108,7 +124,7 @@ class LinkStateRouter:
 
             if changed or is_first:
                 if changed and not is_first:
-                    print(f"[{self.node_id}] Enlace actualizado con {sender}", flush=True)
+                    router_print(f"[{self.node_id}] Enlace actualizado con {sender}", flush=True)
                 self._update_self_lsa_state()
                 self._rebuild_topology_and_routes()
                 lsa_to_flood = self._build_lsa_nolock()
@@ -145,13 +161,13 @@ class LinkStateRouter:
         is_own = origin == self.node_id
 
         if is_own and sender == self.node_id:
-            print(f"[{self.node_id}] Publicando LSA seq={seq} con {len(links)} enlaces activos", flush=True)
+            router_print(f"[{self.node_id}] Publicando LSA seq={seq} con {len(links)} enlaces activos", flush=True)
 
         is_new = is_own or self.process_lsa(lsa, sender)
         forwarded = []
         if is_new:
             if not is_own:
-                print(f"[{self.node_id}] LSA recibido de {origin} (seq={seq}, {len(links)} enlaces)", flush=True)
+                router_print(f"[{self.node_id}] LSA recibido de {origin} (seq={seq}, {len(links)} enlaces)", flush=True)
             with self.lock:
                 active_neighbors = list(self.neighbors.keys())
 
@@ -198,9 +214,9 @@ class LinkStateRouter:
         self.routing_table = routing_table
 
         if changed:
-            print(f"[{self.node_id}] Tabla de ruteo actualizada ({len(routing_table)} destinos):", flush=True)
+            router_print(f"[{self.node_id}] Tabla de ruteo actualizada ({len(routing_table)} destinos):", flush=True)
             for dest, (nh, cost, ip, port, path) in routing_table.items():
-                print(f"   {dest} -> next_hop={nh} cost={cost} path={' -> '.join(path)}", flush=True)
+                router_print(f"   {dest} -> next_hop={nh} cost={cost} path={' -> '.join(path)}", flush=True)
             threading.Thread(target=self._save_csv_disk, args=(dict(routing_table),), daemon=True).start()
 
     def _save_csv_disk(self, table: Dict[str, Tuple[str, int, str, int, List[str]]]) -> None:
@@ -301,14 +317,14 @@ class LinkStateRouter:
                 next_hop = route_info["next_hop"]
                 if next_hop:
                     ip, port = route_info["ip"], route_info["port"]
-                    print(f"[{self.node_id}][FWD] Reenviando a {dest} vía {next_hop} ({ip}:{port})", flush=True)
+                    router_print(f"[{self.node_id}][FWD] Reenviando a {dest} vía {next_hop} ({ip}:{port})", flush=True)
                     threading.Thread(
                         target=self._send_to_address,
                         args=(ip, port, packet),
                         daemon=True,
                     ).start()
                 else:
-                    print(f"[{self.node_id}][FWD] Sin ruta para '{dest}'. Descartando.", flush=True)
+                    router_print(f"[{self.node_id}][FWD] Sin ruta para '{dest}'. Descartando.", flush=True)
 
     def _send_to_node(self, target_id: str, packet: dict) -> bool:
         addr = self.node_addresses.get(target_id)
@@ -336,7 +352,7 @@ class LinkStateRouter:
             for neighbor_id in target_neighbors:
                 ok = self._send_to_node(neighbor_id, hello_msg)
                 mark = "✓" if ok else "✗ (sin respuesta)"
-                print(f"[{self.node_id}] HELLO -> {neighbor_id} {mark}", flush=True)
+                router_print(f"[{self.node_id}] HELLO -> {neighbor_id} {mark}", flush=True)
             time.sleep(self.hello_interval)
 
     def _liveness_loop(self) -> None:
@@ -349,7 +365,7 @@ class LinkStateRouter:
                 for neighbor_id in list(self.neighbors.keys()):
                     last = self.neighbor_last_seen.get(neighbor_id)
                     if last is not None and (now - last) > self.dead_interval:
-                        print(f"[{self.node_id}] VECINO CAIDO: {neighbor_id} (sin HELLO por > {self.dead_interval}s)", flush=True)
+                        router_print(f"[{self.node_id}] VECINO CAIDO: {neighbor_id} (sin HELLO por > {self.dead_interval}s)", flush=True)
                         del self.neighbors[neighbor_id]
                         changed = True
 

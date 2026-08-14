@@ -1,4 +1,4 @@
-# Laboratorio 3 - Protocolos de Enrutamiento
+# Laboratorio 3 - Protocolos de Enrutamiento y Malla Distribuida
 
 Universidad del Valle de Guatemala  
 CC3084 - Redes - Semestre II 2026
@@ -9,36 +9,44 @@ CC3084 - Redes - Semestre II 2026
 
 ---
 
-## Objetivo del proyecto
-Este repositorio implementa un sistema de enrutamiento distribuido con el protocolo Link-State (LSA) y calculo de rutas con Dijkstra. Incluye:
-- Router con intercambio de paquetes HELLO y LSA.
-- Calculo y exportacion de tablas de enrutamiento en CSV.
-- Deteccion y correccion de errores con Hamming (7,4).
-- Simulacion de transaccion bancaria ATM -> Router(es) -> Banco end-to-end.
-- Soporte para ejecutar cada nodo en **maquinas distintas** conectadas via **Tailscale**.
+## Objetivo del Proyecto
+
+Este repositorio implementa un sistema de enrutamiento distribuido con el protocolo **Link-State (LSA)** y cálculo de rutas mediante el algoritmo de **Dijkstra**. Incluye:
+
+- **Plano de Control**: Intercambio periódico de paquetes `HELLO` (descubrimiento de vecinos) y `LSA` (inundación de estado del enlace).
+- **Plano de Datos**: Reenvío salto a salto de paquetes de datos end-to-end (ATM -> Router(es) -> Banco).
+- **Control de Errores por Capas**:
+  - Plano de control (`HELLO` y `LSA`): Transmisión bajo el algoritmo `none` (bits ASCII directos sin redundancia).
+  - Plano de datos (`ATM` / `BANK`): Codificación por bloques **Hamming (7,4)** con un encabezado de 16 bits (`num_blocks`) para detección y corrección de errores de 1 bit.
+- **Formato del Socket (Protocolo Compartido Inter-Grupo)**:
+  Trama de red terminada en salto de línea: `<algoritmo>|<cadena_de_bits>\n`
+- **Tablas de Enrutamiento (CSV)**: Exportación automática en el estándar acordado `destino,siguiente_salto,costo,ip,puerto`.
+- **Menú Interactivo del Cajero ATM**: Consola limpia e interactiva con comandos para transacciones bancarias, control de logs de fondo (`logs on/off`) y salida limpia (`exit`).
+- **Conectividad Distribuida vía Tailscale**: Ejecución en máquinas independientes conectadas por red privada VPN.
+- **Interoperabilidad Total**: Compatibilidad garantizada para conectarse e intercambiar paquetes con el proyecto de los compañeros (`Lab3-Redes`).
 
 ---
 
-## Estructura del proyecto
+## Estructura del Proyecto
 
 ```
 Lab3-REDES/
-├── topology.json            <- FUENTE UNICA DE VERDAD (IPs, nodos, enlaces)
+├── topology.json            <- FUENTE UNICA DE VERDAD (IPs, nodos, enlaces y end_hosts)
 ├── src/
-│   ├── main.py              <- Punto de entrada principal
-│   ├── network_settings.py  <- Solo controla USE_TAILSCALE = True/False
+│   ├── main.py              <- Punto de entrada principal (CLI de ejecución)
+│   ├── network_settings.py  <- Control de modo USE_TAILSCALE = True/False
 │   ├── common/
-│   │   ├── config.py        <- Carga y parseo de topology.json
-│   │   ├── framing.py       <- Serializacion de paquetes TCP
-│   │   └── hamming.py       <- Codificacion/decodificacion Hamming (7,4)
+│   │   ├── config.py        <- Parseador de topología insensible a mayúsculas/minúsculas
+│   │   ├── framing.py       <- Capa de enmarcado <algoritmo>|<bits>\n
+│   │   └── hamming.py       <- Hamming (7,4) por bloques con encabezado de 16 bits
 │   ├── routers/
-│   │   └── router.py        <- Logica del router Link-State
+│   │   └── router.py        <- Router Link-State (HELLO, LSA, Dijkstra y Forwarding)
 │   └── apps/
-│       ├── atm_client.py    <- Cliente ATM
-│       └── bank_server.py   <- Servidor Bancario
+│       ├── atm_client.py    <- Cliente ATM (Cajero interactivo)
+│       └── bank_server.py   <- Servidor Bancario (Manejo de cuentas y sesiones)
 ├── tests/
-│   └── test_routing.py      <- Pruebas unitarias
-└── output/                  <- Tablas de enrutamiento CSV generadas
+│   └── test_routing.py      <- Pruebas unitarias e interoperabilidad inter-grupo
+└── output/                  <- Tablas de enrutamiento CSV generadas automáticamente
 ```
 
 ---
@@ -46,35 +54,34 @@ Lab3-REDES/
 ## Requisitos
 
 - Python **3.10** o superior.
-- (Para red distribuida) **Tailscale** instalado en cada maquina.
+- **Tailscale** instalado y activo en cada máquina (para modo distribuido).
 
 ---
 
-## Configuracion: topology.json
+## Configuración: `topology.json`
 
-Toda la configuracion de la red se define en un solo archivo: **`topology.json`**.
+Toda la red se define en el archivo de configuración **`topology.json`**:
 
-Este archivo contiene:
-- **machines**: IP de Tailscale de cada participante (P1, P2, ...).
-- **nodes**: routers de la red, cada uno con su propietario (`owner`) y puerto.
-- **links**: enlaces entre routers con su costo.
-- **end_hosts**: nodos terminales (ATM, Banco) con su propietario, puerto y gateway.
+- **`machines`**: Dirección IP de Tailscale de cada participante (`Espana`, `Angel`, `Tono`, etc.).
+- **`nodes`**: Routers de la red, cada uno con su propietario (`owner`) y puerto.
+- **`links`**: Enlaces bidireccionales entre routers con su costo.
+- **`end_hosts`**: Nodos terminales (`ATM1`, `BANK1`) con su propietario, puerto y gateway.
 
-### Ejemplo de topology.json
+### Ejemplo de `topology.json`:
 
 ```json
 {
   "machines": {
-    "P1": "100.93.223.104",
-    "P2": "100.64.209.42"
+    "Espana": "100.119.213.97",
+    "Angel": "100.71.208.101"
   },
   "nodes": {
-    "R1": { "owner": "P1", "port": 5001 },
-    "R2": { "owner": "P1", "port": 5002 },
-    "R3": { "owner": "P1", "port": 5003 },
-    "R4": { "owner": "P2", "port": 5004 },
-    "R5": { "owner": "P2", "port": 5005 },
-    "R6": { "owner": "P2", "port": 5006 }
+    "R1": { "owner": "Espana", "port": 5001 },
+    "R2": { "owner": "Espana", "port": 5002 },
+    "R3": { "owner": "Espana", "port": 5003 },
+    "R4": { "owner": "Angel", "port": 5004 },
+    "R5": { "owner": "Angel", "port": 5005 },
+    "R6": { "owner": "Angel", "port": 5006 }
   },
   "links": [
     { "a": "R1", "b": "R2", "cost": 1 },
@@ -86,163 +93,128 @@ Este archivo contiene:
     { "a": "R2", "b": "R5", "cost": 5 }
   ],
   "end_hosts": {
-    "ATM1": { "owner": "P1", "port": 5020, "gateway": "R1", "cost": 1 },
-    "BANK1": { "owner": "P2", "port": 5010, "gateway": "R4", "cost": 1 }
+    "ATM1": { "owner": "Espana", "port": 6101, "gateway": "R1", "cost": 1 },
+    "BANK1": { "owner": "Angel", "port": 6102, "gateway": "R4", "cost": 1 }
   }
 }
 ```
 
-Para modificar la red solo hay que editar este archivo:
-- Cambiar IPs de participantes en `machines`.
-- Agregar/quitar routers en `nodes`.
-- Cambiar enlaces y costos en `links`.
-- Reasignar propietarios cambiando el campo `owner`.
-
 ---
 
-## Ejecucion local (una sola maquina)
+## Ejecución del Proyecto
 
-Asegurate de que `src/network_settings.py` tenga:
+### Formas de Ejecución (`src/main.py`)
 
-```python
-USE_TAILSCALE = False
+Puedes pasar el nombre del propietario o del nodo como **argumento directo** (posicional) o mediante flags:
+
+#### 1. Ejecutar todos los nodos de un participante (Recomendado)
+```bash
+# Ejecutar nodos de Espana (R1, R2, R3, ATM1)
+python src/main.py Espana
+
+# O con flag explícito:
+python src/main.py -p Espana
 ```
 
-O usa el flag `--local`:
+#### 2. Ejecutar un nodo individual
+```bash
+python src/main.py R1
+python src/main.py BANK1
+python src/main.py ATM1
+```
 
-### Demostracion automatica completa
+#### 3. Ejecución Local (Pruebas en una sola máquina)
+Agrega el flag `--local` para forzar el uso de `127.0.0.1`:
+```bash
+python src/main.py Espana --local
+```
+O cambia en `src/network_settings.py`: `USE_TAILSCALE = False`.
 
+#### 4. Demostración Automática Completa (Simulación Local)
 ```bash
 python src/main.py --demo
-# Equivalente con flag local:
-python src/main.py --demo --local
-```
-
-### Ejecutar todos los nodos de tu grupo
-
-```bash
-# Si eres P1 (ejecuta ATM1, R1, R2, R3 juntos):
-python src/main.py --participant P1 --local
-
-# O usando el alias -p:
-python src/main.py -p P1 --local
-```
-
-### Ejecutar un nodo individual
-
-```bash
-python src/main.py --node R1 --local
-python src/main.py --node BANK1 --local
-python src/main.py --node ATM1 --local
-```
-
-### Pruebas unitarias
-
-```bash
-python -m unittest discover tests
 ```
 
 ---
 
-## Ejecucion distribuida con Tailscale
+## Menú Interactivo del Cajero ATM
 
-Guia para que cada integrante corra sus nodos en su propia maquina.
+Cuando ejecutas un conjunto de nodos que incluye un Cajero ATM (por ejemplo `python src/main.py Espana`), se abre automáticamente la consola interactiva del ATM.
 
-### Paso 1 -- Instalar Tailscale
+### Características y Silenciamiento de Logs
+Para evitar que los mensajes periódicos del router (`HELLO`, `LSA`, actualización de rutas) interrumpan lo que estás escribiendo en el cajero, **los logs del router están silenciados por defecto mientras usas el ATM**.
 
-1. Ir a [https://tailscale.com/download](https://tailscale.com/download).
-2. Iniciar sesion. **Todos los integrantes deben estar en la misma red Tailscale**.
-3. Tailscale asignara una IP `100.x.x.x` a cada maquina.
+```
+==================================================
+               MENU CAJERO ATM (ATM1)        
+==================================================
+Comandos disponibles:
+  - login               : Iniciar sesion (pide tarjeta y PIN)
+  - withdraw [monto]    : Realizar retiro de dinero
+  - logout              : Cerrar sesion
+  - logs [on|off]       : Mostrar/ocultar logs de red en tiempo real
+  - exit                : Salir del programa
+```
 
-### Paso 2 -- Encontrar tu IP de Tailscale
+### Comandos del Menú ATM:
+- **`login`**: Solicita tarjeta y PIN. Autentica contra el banco remoto.
+  - Tarjetas de prueba disponibles: `4111111111111111` (PIN `1234`), `5500005555555559` (PIN `0000`), `23221` (PIN `2310`).
+- **`withdraw [monto]`**: Solicita el monto a retirar (ej. `withdraw 100`).
+- **`logout`**: Cierra la sesión activa en el banco.
+- **`logs` / `logs on` / `logs off`**: Permite activar o desactivar los logs del enrutador en tiempo real sin detener el programa.
+- **`exit` / `quit`**: Cierra el cajero y detiene de forma limpia todos los nodos que se estaban ejecutando en esa consola.
 
+---
+
+## Ejecución Distribuida con Tailscale
+
+### Paso 1. Iniciar Tailscale
+Asegúrate de que todos los integrantes estén conectados a la misma red de Tailscale:
 ```bash
 tailscale ip -4
 ```
 
-O mira la app de Tailscale / [panel web](https://login.tailscale.com/admin/machines).
+### Paso 2. Configurar `topology.json`
+Edita la sección `machines` en `topology.json` colocando las IPs de Tailscale reales de cada integrante (`Espana`, `Angel`, etc.).
 
-### Paso 3 -- Editar topology.json
-
-1. En la seccion `machines`, coloca la IP real de cada participante:
-
-```json
-"machines": {
-    "P1": "100.93.223.104",
-    "P2": "100.64.209.42"
-}
-```
-
-2. En `nodes` y `end_hosts`, asigna el `owner` correcto a cada nodo segun quien lo va a ejecutar.
-
-3. Asegurate de que `src/network_settings.py` tenga:
-
+Asegúrate de que `src/network_settings.py` contenga:
 ```python
 USE_TAILSCALE = True
 ```
 
-### Paso 4 -- Distribuir nodos
+### Paso 3. Iniciar Nodos por Participante
+Cada integrante ejecuta su comando en su consola:
 
-Ejemplo con 2 participantes:
-
-| Participante | Nodos                    |
-|--------------|--------------------------|
-| P1           | ATM1, R1, R2, R3         |
-| P2           | R4, R5, R6, BANK1        |
-
-Ejemplo con 3 participantes:
-
-| Participante | Nodos              |
-|--------------|--------------------|
-| P1           | ATM1, R1           |
-| P2           | R2, R3, R4         |
-| P3           | R5, R6, BANK1      |
-
-### Paso 5 -- Ejecutar
-
-Cada persona corre un solo comando:
-
-```bash
-# Persona 1:
-python src/main.py -p Espana
-
-# Persona 2:
-python src/main.py -p Roberto
-```
-
-Este comando levanta automaticamente todos los nodos asignados a ese propietario en `topology.json`. Si tu grupo incluye el cajero ATM1, se abre el menu interactivo.
-
-### Paso 6 -- Verificar la conexion
-
-Al arrancar veras en consola:
-
-```
-==================================================
-  PROPIETARIO: P1  |  Modo: Tailscale
-  Nodos: R1, R2, R3, ATM1
-==================================================
-Iniciando Router [R1] en 100.93.223.104:5001...
-Iniciando Router [R2] en 100.93.223.104:5002...
-...
-```
-
-Si ves `Modo: Local` en lugar de `Tailscale`, revisa que `USE_TAILSCALE = True` en `src/network_settings.py`.
-
-### Solucion de problemas comunes
-
-| Problema | Solucion |
-|----------|----------|
-| `Connection refused` | Verificar que el nodo destino ya esta corriendo y que la IP en `topology.json` es correcta. |
-| Los nodos no se ven entre si | Verificar que ambas maquinas aparecen como "Connected" en el panel de Tailscale. |
-| `Address already in use` | Otro proceso ocupa el puerto. Cerrar el proceso anterior o cambiar el puerto en `topology.json`. |
-| Firewall bloqueando | Tailscale normalmente pasa firewalls. Si no, agregar excepcion para los puertos 5001-5020. |
+- **España (Máquina 1)**:
+  ```bash
+  python src/main.py Espana
+  ```
+- **Angel (Máquina 2)**:
+  ```bash
+  python src/main.py Angel
+  ```
 
 ---
 
-## Notas sobre el protocolo
+## Interoperabilidad con el Proyecto de Compañeros (`Lab3-Redes`)
 
-- Todos los paquetes siguen el formato JSON: `{nodo_origen, nodo_destino, mensaje}`.
-- Los routers intercambian paquetes `HELLO` para descubrir vecinos y `LSA` para propagar el estado del enlace.
-- Las rutas se calculan con el algoritmo de Dijkstra sobre el grafo de la red.
-- Cada paquete de datos se codifica con **Hamming (7,4)** para deteccion y correccion de errores de 1 bit.
-- Las tablas de enrutamiento se exportan automaticamente a `output/<nodo>_nodo_tabla_enrutamiento.csv`.
+Nuestro proyecto en `src/` puede conectarse e intercambiar paquetes directamente con los nodos del repositorio clonado `Lab3-Redes/`.
+
+Si un participante ejecuta su parte con el código de `Lab3-Redes/`:
+1. Debe sincronizar `topology.json` y ejecutar `python topology_generator.py` dentro de `Lab3-Redes/` para actualizar las IPs de sus archivos `configs/*.json`.
+2. Luego inicia su router/nodo normalmente:
+   ```bash
+   python router.py configs/R4.json
+   python bank/server.py configs/BANK1.json
+   ```
+3. Tu nodo en `src/` (`python src/main.py Espana`) se conectará automáticamente a sus routers por Tailscale, intercambiará paquetes `HELLO` y `LSA`, y procesará transacciones del cajero.
+
+---
+
+## Pruebas Unitarias e Interoperabilidad
+
+Para ejecutar la suite completa de pruebas unitarias y la prueba de integración directa con `Lab3-Redes`:
+
+```bash
+python -m unittest discover tests
+```
