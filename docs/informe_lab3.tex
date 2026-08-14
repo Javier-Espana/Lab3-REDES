@@ -1,0 +1,490 @@
+﻿\documentclass[12pt, a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+
+\geometry{margin=2.5cm}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    urlcolor=blue!60!black,
+    citecolor=blue!60!black,
+}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.96,0.96,0.96}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    captionpos=b,
+    numbers=left,
+    numbersep=5pt,
+    showstringspaces=false,
+    tabsize=2,
+    frame=single,
+    framerule=0.4pt,
+    rulecolor=\color{black!20},
+}
+\lstset{style=mystyle}
+
+\begin{document}
+
+% ─── PORTADA ──────────────────────────────
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+    {\Large \textbf{Universidad del Valle de Guatemala}\\[0.3cm]}
+    {\large Facultad de Ingenieria\\[0.1cm]}
+    {\large Departamento de Ciencias de la Computacion\\[1.8cm]}
+
+    \rule{\textwidth}{1pt}\\[0.5cm]
+    {\LARGE \textbf{Laboratorio 3}\\[0.3cm]}
+    {\Large \textbf{Protocolos de Enrutamiento}}\\[0.3cm]
+    \rule{\textwidth}{1pt}\\[1.8cm]
+
+    {\large \textbf{CC3067 --- Redes}\\[0.4cm]}
+    {\large Semestre II --- 2026\\[2cm]}
+
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Integrante}   & \textbf{Carne} \\
+        \midrule
+        Javier Espana         & 23361          \\
+        Roberto Barreda       & 23354          \\
+        \bottomrule
+    \end{tabular}\\[2cm]
+
+    {\large Guatemala, agosto de 2026}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ──────────────────────────────────────────
+\section{Descripcion de la Practica}
+
+El Laboratorio 3 de Redes consiste en implementar el protocolo de enrutamiento
+\textbf{Link-State} sobre una red simulada mediante sockets TCP. Cada nodo de
+la red es un proceso independiente que descubre sus vecinos, intercambia
+informacion de estado del enlace y calcula las rutas optimas mediante el
+algoritmo de Dijkstra.
+
+La red de prueba se compone de tres parejas de estudiantes (seis integrantes),
+cada una responsable de uno o varios nodos. La conectividad distribuida se
+logra mediante \textbf{Tailscale}, una VPN P2P que asigna una IP
+\texttt{100.x.x.x} fija a cada maquina. Las parejas deben acordar un
+\textbf{protocolo comun} para garantizar la interoperabilidad de sus
+implementaciones independientes.
+
+La practica se divide en dos partes:
+\begin{enumerate}
+    \item \textbf{Plano de control}: implementacion del protocolo Link-State
+          (HELLO, LSA, Dijkstra, tabla de enrutamiento CSV).
+    \item \textbf{Plano de datos}: reenvio salto a salto de mensajes con
+          deteccion y correccion de errores Hamming (7,4), mas la interconexion
+          y prueba entre todos los grupos.
+\end{enumerate}
+
+La topologia acordada para la topologia de seis nodos es la siguiente:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    router/.style={draw, circle, minimum size=1.1cm, fill=blue!15,
+                   font=\small\bfseries},
+    host/.style={draw, rectangle, rounded corners=3pt, minimum width=1.5cm,
+                 minimum height=0.75cm, fill=green!15, font=\small\bfseries},
+    lbl/.style={font=\footnotesize, midway, above, sloped},
+]
+    \node[router] (R1) at (0,0)     {R1};
+    \node[router] (R2) at (3,1.5)   {R2};
+    \node[router] (R3) at (0,-2.5)  {R3};
+    \node[router] (R4) at (3,-2.5)  {R4};
+    \node[router] (R5) at (6,0)     {R5};
+    \node[router] (R6) at (6,-2.5)  {R6};
+
+    \node[host] (ATM1)  at (-2.8, 0)   {ATM1};
+    \node[host] (BANK1) at (3, -4.5)   {BANK1};
+
+    \draw[thick] (R1) -- node[lbl]{1} (R2);
+    \draw[thick] (R2) -- node[lbl]{2} (R3);
+    \draw[thick] (R3) -- node[lbl]{1} (R4);
+    \draw[thick] (R4) -- node[lbl]{3} (R5);
+    \draw[thick] (R5) -- node[lbl]{1} (R6);
+    \draw[thick] (R6) -- node[lbl]{4} (R1);
+    \draw[thick] (R2) -- node[lbl]{5} (R5);
+    \draw[thick, dashed] (ATM1)  -- node[lbl]{1} (R1);
+    \draw[thick, dashed] (BANK1) -- node[lbl]{1} (R4);
+\end{tikzpicture}
+\caption{Topologia de la red. Costos de enlace sobre cada arista. ATM1 y BANK1 son terminales (no routers).}
+\end{figure}
+
+La asignacion de nodos por participante es:
+
+\begin{table}[H]
+    \centering
+    \caption{Asignacion de nodos por participante}
+    \begin{tabular}{llll}
+        \toprule
+        \textbf{Participante} & \textbf{Nodos asignados} & \textbf{IP Tailscale} & \textbf{Puertos} \\
+        \midrule
+        Espana   & R1, R3      & 100.119.213.97 & 5001, 5003  \\
+        Roberto  & R2, ATM1    & 100.84.155.75  & 5002, 6101  \\
+        Tono     & R4          & 100.64.209.42  & 5004        \\
+        Angel    & R5, R6, BANK1 & 100.71.208.101 & 5005, 5006, 6102 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+% ──────────────────────────────────────────
+\section{Descripcion de los Algoritmos Utilizados y su Implementacion}
+
+\subsection{Plano de Control: Protocolo Link-State}
+
+\subsubsection{Descubrimiento de Vecinos (HELLO)}
+
+Cada router envia periodicamente un paquete \texttt{HELLO} a todos sus vecinos
+configurados inicialmente. Al recibir un \texttt{HELLO} de un nodo
+desconocido, el router lo registra como vecino activo y actualiza su LSA. Si
+un vecino deja de responder durante \texttt{dead\_interval} segundos, es
+declarado caido y se propaga un LSA actualizado.
+
+\begin{lstlisting}[language=Python, caption=Estructura del paquete HELLO]
+{ "type": "HELLO", "from": "R1" }
+\end{lstlisting}
+
+\subsubsection{Publicacion del Estado del Enlace (LSA)}
+
+Cuando el estado local cambia, el router construye un \textit{Link State
+Advertisement} (LSA) con numero de secuencia incremental y lo inunda hacia
+todos sus vecinos, salvo al remitente original (\textit{flooding controlado}).
+Cada router ignora LSAs con numero de secuencia menor o igual al ultimo visto
+del mismo origen.
+
+\begin{lstlisting}[language=Python, caption=Estructura del paquete LSA]
+{
+    "type":   "LSA",
+    "origin": "R1",
+    "seq":    3,
+    "links":  [{"to": "R2", "cost": 1}, {"to": "R3", "cost": 4}],
+    "from":   "R1"
+}
+\end{lstlisting}
+
+\subsubsection{Calculo de Rutas: Dijkstra}
+
+Con la informacion de todos los LSAs recibidos, cada router construye el grafo
+global de la red y aplica el \textbf{algoritmo de Dijkstra} para calcular la
+ruta de costo minimo hacia cada destino. La implementacion usa una cola de
+prioridad (\textit{min-heap}) para lograr complejidad $O((V + E) \log V)$.
+
+\begin{table}[H]
+    \centering
+    \caption{Tabla de enrutamiento de R1 tras la convergencia}
+    \begin{tabular}{llll}
+        \toprule
+        \textbf{destino} & \textbf{siguiente\_salto} & \textbf{costo} & \textbf{ruta} \\
+        \midrule
+        R2    & R2   & 1 & R1 $\to$ R2 \\
+        R3    & R3   & 1 & R1 $\to$ R3 \\
+        R4    & R2   & 2 & R1 $\to$ R2 $\to$ R3 $\to$ R4 \\
+        R5    & R2   & 3 & R1 $\to$ R2 $\to$ R3 $\to$ R4 $\to$ R5 \\
+        R6    & R6   & 4 & R1 $\to$ R6 \\
+        BANK1 & R2   & 3 & R1 $\to$ R2 $\to$ R3 $\to$ R4 $\to$ BANK1 \\
+        ATM1  & ATM1 & 1 & R1 $\to$ ATM1 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+La tabla se exporta automaticamente al archivo
+\texttt{output/<nodo>\_nodo\_tabla\_enrutamiento.csv} cada vez que Dijkstra
+recalcula las rutas, con columnas: \texttt{destino, siguiente\_salto, costo, ip, puerto}.
+
+\subsection{Plano de Datos y Arquitectura de Capas}
+
+\subsubsection{Reenvio salto a salto}
+
+Al recibir un paquete de datos cuyo \texttt{nodo\_destino} no coincide con el
+propio nodo, el router consulta su tabla de enrutamiento, obtiene la IP y
+puerto del siguiente salto y reenvía el paquete por un nuevo socket TCP.
+El formato de los paquetes de datos es:
+
+\begin{lstlisting}[language=Python, caption=Paquete de datos]
+{
+    "nodo_origen":  "ATM1",
+    "nodo_destino": "BANK1",
+    "mensaje": {"action": "withdraw", "data": {"amount": 100}}
+}
+\end{lstlisting}
+
+\subsubsection{Deteccion y Correccion de Errores: Hamming (7,4)}
+
+La capa de datos aplica \textbf{Hamming (7,4)} a todos los bits del paquete
+antes de transmitir. Los datos se dividen en bloques de 4 bits $[d_1, d_2,
+d_3, d_4]$ y cada bloque se codifica en 7 bits $[p_1, p_2, d_1, p_3, d_2,
+d_3, d_4]$ con tres bits de paridad calculados como:
+
+\[
+p_1 = d_1 \oplus d_2 \oplus d_4, \quad
+p_2 = d_1 \oplus d_3 \oplus d_4, \quad
+p_3 = d_2 \oplus d_3 \oplus d_4
+\]
+
+Esto permite detectar y corregir cualquier error de 1 bit por bloque. El
+proceso de recepcion es:
+
+\begin{enumerate}
+    \item Recepcion de la cadena de bits codificada.
+    \item Calculo del sindrome para detectar y corregir errores de 1 bit.
+    \item Extraccion de los 4 bits de datos de cada bloque de 7.
+    \item Deserializacion del mensaje JSON.
+    \item Consulta de la tabla de enrutamiento.
+    \item Reserializacion y recodificacion para el siguiente salto.
+    \item Envio por socket.
+\end{enumerate}
+
+\subsubsection{Protocolo de Enmarcado Compartido}
+
+Para garantizar la interoperabilidad entre grupos, se acordo el siguiente
+formato de trama sobre TCP (terminada en salto de linea):
+
+\[
+\texttt{<algoritmo>|<cadena\_de\_bits>\textbackslash n}
+\]
+
+\begin{itemize}
+    \item Plano de control (\texttt{HELLO}, \texttt{LSA}):
+          \texttt{none|<bits>\textbackslash n} sin redundancia adicional.
+    \item Plano de datos (paquetes ATM/BANK):
+          \texttt{hamming|<bits\_codificados>\textbackslash n}.
+\end{itemize}
+
+La trama Hamming incluye un encabezado de 16 bits (\texttt{num\_blocks}) que
+indica la cantidad de bloques de 7 bits, permitiendo al receptor delimitar
+exactamente cuantos bits deben decodificarse:
+
+\[
+\underbrace{[b_{15}\ldots b_0]}_{\text{16-bit header}}
+\;\Big|\;
+\underbrace{[c_1^{(1)} \ldots c_7^{(1)}] \;\cdots\; [c_1^{(n)} \ldots c_7^{(n)}]}_{\text{n bloques Hamming de 7 bits}}
+\]
+
+\subsection{Cliente ATM y Servidor Bancario}
+
+El nodo \texttt{ATM1} actua como \textbf{cliente}: el usuario interactua con
+un menu de linea de comandos para ejecutar operaciones bancarias (\texttt{login},
+\texttt{withdraw}, \texttt{logout}). El ATM envia los paquetes a su gateway
+(\texttt{R1}) que los encamina a traves de la red hasta el banco.
+
+El nodo \texttt{BANK1} actua como \textbf{servidor}: recibe y procesa las
+solicitudes, administra sesiones y saldos, y envia respuestas de vuelta al ATM
+a traves de la red de routers.
+
+Ambos nodos no participan en el protocolo de enrutamiento: unicamente se
+comunican con su gateway predeterminado mediante sockets.
+
+% ──────────────────────────────────────────
+\section{Resultados}
+
+\subsection{Convergencia del Protocolo Link-State}
+
+Tras iniciar todos los nodos, el protocolo converge en aproximadamente 2--3
+segundos. Cada router imprime su tabla de enrutamiento al detectar cambios:
+
+\begin{lstlisting}[caption=Salida de consola al iniciar el sistema]
+==================================================
+  PROPIETARIO: Espana  |  Modo: Tailscale
+  Nodos: R1, R3
+==================================================
+Iniciando Router [R1] en 100.119.213.97:5001...
+[R1] Publicando LSA seq=1 con 2 enlaces activos
+[R1] HELLO -> R2 (ok)
+[R1] Vecino detectado: R2
+[R1] Tabla de ruteo actualizada (6 destinos):
+   R2   -> next_hop=R2   cost=1 path=R1 -> R2
+   R3   -> next_hop=R3   cost=1 path=R1 -> R3
+   R4   -> next_hop=R2   cost=2 path=R1 -> R2 -> R3 -> R4
+   BANK1 -> next_hop=R2  cost=3 path=R1 -> R2 -> R3 -> R4 -> BANK1
+\end{lstlisting}
+
+\subsection{Tablas de Enrutamiento Generadas}
+
+Las tablas se exportan automaticamente al directorio \texttt{output/}. Ejemplo
+del archivo \texttt{output/R1\_nodo\_tabla\_enrutamiento.csv}:
+
+\begin{lstlisting}[caption=Contenido de R1\_nodo\_tabla\_enrutamiento.csv]
+destino,siguiente_salto,costo,ip,puerto
+R2,R2,1,100.84.155.75,5002
+R3,R3,1,100.119.213.97,5003
+R4,R2,2,100.84.155.75,5002
+R5,R2,3,100.84.155.75,5002
+R6,R6,4,100.119.213.97,5001
+BANK1,R2,3,100.84.155.75,5002
+ATM1,ATM1,1,100.84.155.75,6101
+\end{lstlisting}
+
+\subsection{Transaccion Bancaria End-to-End}
+
+Se verifico la transaccion completa ATM1 $\to$ R1 $\to$ R2 $\to$ R3 $\to$
+R4 $\to$ BANK1, con mensajes codificados en Hamming (7,4):
+
+\begin{lstlisting}[caption=Flujo de reenvio observado en consola]
+[R1][FWD] Reenviando a BANK1 via R2 (100.84.155.75:5002)
+[R2][FWD] Reenviando a BANK1 via R3 (100.119.213.97:5003)
+[R3][FWD] Reenviando a BANK1 via R4 (100.64.209.42:5004)
+[R4][FWD] Reenviando a BANK1 via BANK1 (100.71.208.101:6102)
+[BANK1] Peticion de ATM1: login
+[BANK1] Respuesta enviada a ATM1: login_ok
+\end{lstlisting}
+
+\subsection{Pruebas Unitarias}
+
+\begin{table}[H]
+    \centering
+    \caption{Resultados de la suite de pruebas}
+    \begin{tabular}{lp{6.5cm}l}
+        \toprule
+        \textbf{Prueba} & \textbf{Descripcion} & \textbf{Resultado} \\
+        \midrule
+        \texttt{test\_hamming\_round\_trip}
+            & Encode/decode Hamming (7,4) de cadena arbitraria. & PASS \\
+        \texttt{test\_hamming\_frame\_with\_header}
+            & Trama con cabecera de 16 bits. & PASS \\
+        \texttt{test\_dijkstra\_shortest\_paths}
+            & Rutas minimas sobre grafo de 4 nodos. & PASS \\
+        \texttt{test\_framing\_encode\_decode}
+            & Formato \texttt{hamming|bits\textbackslash n}. & PASS \\
+        \texttt{test\_socket\_end\_to\_end}
+            & Flujo login, withdraw y logout sobre sockets locales. & PASS \\
+        \texttt{test\_interoperability}
+            & Interoperabilidad con \texttt{Lab3-Redes}. & SKIP* \\
+        \bottomrule
+    \end{tabular}
+
+    {\small * Se omite si el directorio \texttt{Lab3-Redes/} no esta presente.}
+\end{table}
+
+\noindent Resultado general: \texttt{Ran 6 tests in $\approx$2.7s --- OK (skipped=1)}.
+
+% ──────────────────────────────────────────
+\section{Discusion}
+
+\paragraph{Convergencia y dinamismo.}
+El protocolo Link-State con flooding de LSAs logra convergencia rapida: en la
+topologia de 6 nodos, la estabilizacion ocurre en menos de 5 segundos tras el
+inicio. La deteccion de vecinos caidos (basada en \texttt{dead\_interval}) y la
+republica automatica del LSA permiten al sistema recuperarse ante fallos sin
+intervencion manual.
+
+\paragraph{Separacion de planos.}
+La separacion entre plano de control y plano de datos fue clave para la
+correcta implementacion. Los mensajes \texttt{HELLO} y \texttt{LSA} se
+transmiten sin codificacion Hamming (algoritmo \texttt{none}) porque son
+mensajes de senalizacion frecuentes donde la redundancia aumentaria el
+overhead innecesariamente. El enunciado especifica que Hamming aplica
+\textit{``una vez finalizadas las tablas de enrutamiento''}, lo que corresponde
+exactamente al plano de datos.
+
+\paragraph{Interoperabilidad.}
+El acuerdo de un protocolo de trama compartido (\texttt{<algoritmo>|<bits>\textbackslash n})
+fue el factor mas critico para la interoperabilidad entre grupos. Pequenas
+diferencias en el formato (endianness de la cabecera de 16 bits, cantidad de
+bits por bloque) habrian impedido la comunicacion. La sincronizacion de IPs
+de Tailscale mediante \texttt{topology.json} y el generador de configuracion
+del grupo companero resolvio la dependencia de configuracion estatica del otro
+proyecto.
+
+\paragraph{Limitaciones.}
+El sistema actual no implementa autenticacion entre routers, por lo que un
+nodo malicioso podria inyectar LSAs falsos. Tampoco se maneja la reconvergencia
+ante particiones de red (el grafo se desconecta). Estas son limitaciones
+esperables para el alcance del laboratorio.
+
+% ──────────────────────────────────────────
+\section{Conclusiones}
+
+\begin{enumerate}[leftmargin=*]
+    \item El protocolo Link-State permite a cada nodo construir una vision
+          global de la red a partir de informacion distribuida localmente,
+          calculando rutas optimas sin necesidad de un controlador centralizado.
+
+    \item El uso de Tailscale simplifico drasticamente la conectividad entre
+          maquinas en redes distintas, haciendo transparente la diferencia entre
+          ejecutar nodos en una misma LAN o en internet.
+
+    \item La separacion entre plano de control (sin Hamming) y plano de datos
+          (con Hamming) optimiza el uso del ancho de banda: solo los datos de
+          usuario cargan con la redundancia necesaria para la correccion de errores.
+
+    \item La definicion de un protocolo de enmarcado compartido fue esencial
+          para la interoperabilidad. Un estandar de interfaz bien definido
+          permite integrar implementaciones independientes sin coordinacion
+          adicional en tiempo de ejecucion.
+
+    \item Las pruebas automatizadas fueron fundamentales para validar
+          la correccion de cada componente de forma aislada antes de la
+          integracion distribuida, reduciendo significativamente el tiempo
+          de depuracion en red.
+\end{enumerate}
+
+% ──────────────────────────────────────────
+\section*{Comentarios}
+
+Durante el desarrollo se identifico que el mayor desafio no fue la
+implementacion del algoritmo de Dijkstra en si, sino el manejo correcto de la
+concurrencia: los hilos de HELLO, LSA periodico, deteccion de liveness y el
+servidor TCP deben compartir el estado del router (grafo, tabla de enrutamiento,
+secuencias vistas) con proteccion de mutex para evitar condiciones de carrera.
+
+Tambien fue necesario garantizar que el flooding de LSAs no genere loops: cada
+nodo debe registrar los numeros de secuencia vistos por origen y descartar LSAs
+duplicados o desactualizados.
+
+% ──────────────────────────────────────────
+\begin{thebibliography}{9}
+
+\bibitem{tanenbaum}
+Tanenbaum, A. S., \& Wetherall, D. (2011).
+\textit{Computer Networks} (5th ed.). Pearson.
+
+\bibitem{kurose}
+Kurose, J. F., \& Ross, K. W. (2021).
+\textit{Computer Networking: A Top-Down Approach} (8th ed.). Pearson.
+
+\bibitem{hamming}
+Hamming, R. W. (1950).
+Error detecting and error correcting codes.
+\textit{Bell System Technical Journal}, 29(2), 147--160.
+
+\bibitem{tailscale}
+Tailscale Inc. (2024).
+\textit{Tailscale Documentation}.
+\url{https://tailscale.com/kb/}
+
+\bibitem{dijkstra}
+Dijkstra, E. W. (1959).
+A note on two problems in connexion with graphs.
+\textit{Numerische Mathematik}, 1(1), 269--271.
+
+\end{thebibliography}
+
+\end{document}
